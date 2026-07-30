@@ -845,3 +845,523 @@ input:checked + .slider:before {
   letter-spacing: 0.03rem;
 }
 
+
+/* ==========================================
+   PS5 THEME OVERRIDES (FIGMA DASHBOARD LAYOUT)
+   ========================================== */
+
+[data-theme="ps5"] {
+  --bg-primary: #040407;
+  --bg-card: rgba(255, 255, 255, 0.02);
+  --bg-card-focused: rgba(255, 255, 255, 0.12);
+  --border-color: rgba(255, 255, 255, 0.05);
+  --border-color-focused: #ffffff;
+  --accent-cyan: #0072CE;
+  --accent-blue: #00439C;
+  --accent-purple: #001c4a;
+  --text-primary: #ffffff;
+  --text-secondary: #9098a8;
+  --ps-glow: 0 0 20px rgba(0, 114, 206, 0.6), 0 0 4px rgba(255, 255, 255, 0.9);
+}
+
+/* Invert Content Layout (Carousel on TOP, Hero details BELOW) */
+[data-theme="ps5"] .console-content {
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+[data-theme="ps5"] .games-carousel-wrapper {
+  height: 120px;
+  margin-bottom: 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="ps5"] .game-info-panel {
+  height: auto;
+  min-height: 260px;
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding-left: 0.5rem;
+}
+
+/* Ambient glow adjustments for PS5 theme (No blur, clear artwork backdrop!) */
+[data-theme="ps5"] .ambient-bg {
+  filter: brightness(0.28) saturate(1.05);
+  transform: scale(1);
+}
+
+[data-theme="ps5"] .ambient-overlay {
+  background: radial-gradient(circle at center, rgba(0, 40, 100, 0.03) 0%, rgba(2, 2, 4, 0.95) 100%),
+              linear-gradient(to top, rgba(4, 4, 7, 0.96) 0%, rgba(4, 4, 7, 0) 50%);
+}
+
+/* PS5 Header Navigation (Games/Media, search, avatar, relógio) */
+.ps5-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  height: 50px;
+  font-family: var(--font-family);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  padding-bottom: 0.5rem;
+  z-index: 10;
+}
+
+.ps5-header-left {
+  display: flex;
+  gap: 2rem;
+}
+
+.ps5-menu-tab {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  padding: 0.5rem 0.25rem;
+  position: relative;
+  transition: all 0.2s ease;
+  letter-spacing: 0.05rem;
+}
+
+.ps5-menu-tab:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.ps5-menu-tab.active {
+  color: #ffffff;
+}
+
+.ps5-menu-tab.active::after {
+  content: "";
+  position: absolute;
+  bottom: -0.5rem;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #ffffff;
+  box-shadow: 0 0 10px #ffffff;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.ps5-header-right {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.ps5-icon-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.ps5-icon-btn:hover {
+  color: #ffffff;
+  transform: scale(1.1);
+}
+
+.ps5-avatar-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: linear-gradient(135deg, #0072CE, #00439C);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+
+.ps5-avatar-circle:hover {
+  border-color: #ffffff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
+}
+
+.ps5-avatar-inner {
+  width: 80%;
+  height: 80%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.ps5-time-display {
+  font-size: 1.15rem;
+  font-weight: 400;
+  letter-spacing: 0.05rem;
+  color: #ffffff;
+}
+
+/* PS5 Square Cards Styling (80x80px / 92x92px focado) */
+[data-theme="ps5"] .game-card {
+  flex: 0 0 80px;
+  height: 80px;
+  border-radius: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+  transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+  transform-origin: center center;
+}
+
+[data-theme="ps5"] .game-card.focused {
+  flex: 0 0 92px;
+  height: 92px;
+  border-radius: 14px;
+  border-color: #ffffff;
+  box-shadow: var(--ps-glow), 0 10px 25px rgba(0, 0, 0, 0.6);
+  transform: translateY(0) scale(1.05);
+}
+
+[data-theme="ps5"] .game-card-img-wrapper {
+  border-radius: 10px;
+}
+
+[data-theme="ps5"] .game-card-placeholder {
+  border-radius: 10px;
+  padding: 0.5rem;
+}
+
+[data-theme="ps5"] .placeholder-text {
+  font-size: 0.65rem;
+  line-height: 1.2;
+}
+
+[data-theme="ps5"] .placeholder-tag {
+  display: none; /* Hide tag for clean squares */
+}
+
+/* PS5 Hero Game Panel & Dynamic Widgets */
+.ps5-game-hero-container {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.ps5-game-logo {
+  font-size: 3rem;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0 0 0.25rem 0;
+  letter-spacing: -0.05rem;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  animation: fadeIn 0.4s ease-out;
+}
+
+.ps5-hero-actions {
+  margin-top: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.ps5-play-btn {
+  background: #ffffff;
+  border: none;
+  color: #040407;
+  padding: 0.65rem 2rem;
+  border-radius: 30px;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 5px 15px rgba(255, 255, 255, 0.1);
+  transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.ps5-play-btn:hover {
+  transform: scale(1.04);
+  box-shadow: 0 10px 25px rgba(255, 255, 255, 0.25), 0 0 15px rgba(0, 114, 206, 0.35);
+}
+
+/* Widgets styles */
+.ps5-widgets-row {
+  display: flex;
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 900px;
+  animation: fadeIn 0.4s ease-out;
+}
+
+.ps5-widget-card {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  backdrop-filter: blur(10px);
+  min-height: 85px;
+  justify-content: space-between;
+  box-sizing: border-box;
+}
+
+.ps5-widget-title {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 0.05rem;
+}
+
+.ps5-widget-desc {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ps5-widget-value {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.ps5-widget-progress-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.ps5-widget-progress-bar {
+  flex: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ps5-widget-progress-fill {
+  height: 100%;
+  background: #0072CE;
+  border-radius: 2px;
+  box-shadow: 0 0 6px #0072CE;
+}
+
+/* Status dots & badges */
+[data-theme="ps5"] .gamepad-badge {
+  color: #0072CE !important;
+  border-color: rgba(0, 114, 206, 0.3) !important;
+}
+
+[data-theme="ps5"] .status-item {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.04);
+}
+
+/* Settings modal overrides */
+[data-theme="ps5"] .settings-card {
+  border-radius: 24px;
+  background: rgba(10, 10, 14, 0.92);
+  backdrop-filter: blur(20px);
+  border-color: rgba(0, 114, 206, 0.25);
+  box-shadow: 0 35px 70px rgba(0, 0, 0, 0.9), 0 0 30px rgba(0, 114, 206, 0.1);
+}
+
+[data-theme="ps5"] .settings-tab-btn.active {
+  color: #0072CE;
+}
+
+[data-theme="ps5"] .settings-tab-btn.active::after {
+  background: #0072CE;
+  box-shadow: 0 0 8px #0072CE;
+}
+
+/* Theme selector grid & cards */
+.theme-selector-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+.theme-selector-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 1rem;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+.theme-selector-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--accent-cyan);
+  transform: translateY(-2px);
+}
+
+.theme-selector-card.active {
+  border-color: var(--accent-cyan);
+  background: rgba(6, 182, 212, 0.05);
+  box-shadow: 0 0 15px rgba(6, 182, 212, 0.1);
+}
+
+[data-theme="ps5"] .theme-selector-card.active {
+  background: rgba(0, 114, 206, 0.05);
+  border-color: #0072CE;
+  box-shadow: 0 0 15px rgba(0, 114, 206, 0.15);
+}
+
+.theme-preview-box {
+  width: 100%;
+  height: 90px;
+  border-radius: 8px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 0.75rem;
+  box-sizing: border-box;
+  margin-bottom: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.25s ease;
+}
+
+.atlas-theme-preview {
+  background: radial-gradient(circle at center, #08080a 0%, #15151a 100%);
+}
+
+.ps5-theme-preview {
+  background: radial-gradient(circle at center, #001c4a 0%, #040407 100%);
+  border-color: rgba(0, 114, 206, 0.2);
+}
+
+.theme-mini-logo {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: #ffffff;
+  opacity: 0.8;
+}
+
+.theme-color-dots {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.theme-color-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.theme-card-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.preview-indicator {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+  transition: all 0.25s ease;
+}
+
+.theme-selector-card.active .preview-indicator {
+  background: var(--accent-cyan);
+  box-shadow: 0 0 8px var(--accent-cyan);
+}
+
+[data-theme="ps5"] .theme-selector-card.active .preview-indicator {
+  background: #0072CE;
+  box-shadow: 0 0 8px #0072CE;
+}
+
+.settings-row-theme-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+/* Make badges look extra clean */
+[data-theme="ps5"] .key-badge {
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+  font-family: inherit;
+}
+
+/* Override YouTube trigger and close buttons colors in PS5 theme */
+[data-theme="ps5"] .youtube-trigger-btn {
+  background: rgba(239, 68, 68, 0.06);
+  border-color: rgba(239, 68, 68, 0.15);
+}
+
+[data-theme="ps5"] .youtube-trigger-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+}
+
+[data-theme="ps5"] .youtube-header-bar {
+  background: rgba(4, 4, 7, 0.96);
+  border-bottom-color: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="ps5"] .youtube-back-btn:hover {
+  border-color: #0072CE;
+  box-shadow: 0 0 10px rgba(0, 114, 206, 0.25);
+}
+
+[data-theme="ps5"] .yt-hint-key {
+  background: rgba(0, 114, 206, 0.12);
+  border-color: rgba(0, 114, 206, 0.3);
+  color: #0072CE;
+}
+
+[data-theme="ps5"] .switch input:checked + .slider {
+  background-color: #0072CE;
+  box-shadow: 0 0 10px rgba(0, 114, 206, 0.4);
+}
+
+[data-theme="ps5"] .btn-primary {
+  background: linear-gradient(135deg, #0072CE, #00439C);
+  box-shadow: 0 4px 12px rgba(0, 114, 206, 0.25);
+}
+
+[data-theme="ps5"] .btn-primary:hover {
+  box-shadow: 0 4px 18px rgba(0, 114, 206, 0.45);
+}
+
+[data-theme="ps5"] .input-row input:focus {
+  border-color: #0072CE;
+}
+
+/* Spinner customization for PS5 */
+[data-theme="ps5"] .spinner {
+  border-top-color: #0072CE;
+}
+
+
+

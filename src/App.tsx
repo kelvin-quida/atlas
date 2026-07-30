@@ -68,12 +68,21 @@ function App() {
   const [isSimulated, setIsSimulated] = useState(false);
   const [launchingGame, setLaunchingGame] = useState<SteamGame | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"geral" | "custom">("geral");
+  const [settingsTab, setSettingsTab] = useState<"geral" | "custom" | "aparencia">("geral");
+  const [currentTheme, setCurrentTheme] = useState<string>(() => {
+    return localStorage.getItem("atlas_theme") || "atlas";
+  });
   const [shellEnabled, setShellEnabled] = useState(false);
   const [systemTime, setSystemTime] = useState("");
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
   const [gamepadConnected, setGamepadConnected] = useState(false);
   const [youtubeActive, setYoutubeActive] = useState(false);
+
+  // Sync theme with document class/attribute
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", currentTheme);
+    localStorage.setItem("atlas_theme", currentTheme);
+  }, [currentTheme]);
 
   // Form states for adding custom game
   const [customName, setCustomName] = useState("");
@@ -569,6 +578,50 @@ function App() {
     return `linear-gradient(135deg, hsl(${h1}, 65%, 22%) 0%, hsl(${h2}, 65%, 10%) 100%)`;
   };
 
+  // Generate game-specific mock widgets for PS5 theme
+  const getGameWidgets = (game: SteamGame) => {
+    const name = game.name;
+    if (name.includes("Baldur's Gate")) {
+      return [
+        { title: "Troféus", desc: "Ato III iniciado", value: "32%", progress: 32 },
+        { title: "Atividades", desc: "Acampamento na taverna", value: "Aventura ativa" },
+        { title: "Dica de Jogo", desc: "Descubra segredos de Baldur's Gate", value: "Dica do Ato 3" }
+      ];
+    }
+    if (name.includes("Cyberpunk")) {
+      return [
+        { title: "Troféus", desc: "Cidade dos Sonhos", value: "48%", progress: 48 },
+        { title: "Atividades", desc: "Trabalho Sujo com Rogue", value: "Missão pendente" },
+        { title: "Colecionáveis", desc: "Tarôs encontrados: 14/22", value: "Ver mapa" }
+      ];
+    }
+    if (name.includes("Elden Ring")) {
+      return [
+        { title: "Troféus", desc: "Lendário Lorde de Limgrave", value: "78%", progress: 78 },
+        { title: "Atividades", desc: "Explorar Ruínas de Caelid", value: "Nível 105" },
+        { title: "Chefes derrotados", desc: "Margit, Godrick, Radahn...", value: "5/15" }
+      ];
+    }
+    if (name.includes("Hades")) {
+      return [
+        { title: "Fugas", desc: "Tentativas de fuga bem sucedidas: 14", value: "14 fugas" },
+        { title: "Troféus", desc: "Sangue e Trevas", value: "90%", progress: 90 },
+        { title: "Favor com Deuses", desc: "Néctares dados: 12/20", value: "Favor ativo" }
+      ];
+    }
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const completion = Math.abs(hash % 90) + 10;
+    const hours = Math.abs(hash % 150) + 12;
+    return [
+      { title: "Troféus", desc: "Progresso da Campanha", value: `${completion}%`, progress: completion },
+      { title: "Atividades", desc: "Retomar de onde parou", value: "Jogar agora" },
+      { title: "Estatísticas", desc: "Tempo total registrado", value: `${hours} horas` }
+    ];
+  };
+
   // Resolve background ambient glow url
   const ambientBackgroundUrl = activeGame
     ? getGameImageUrl(activeGame)
@@ -590,12 +643,12 @@ function App() {
           {gamepadConnected && (
             <div className="youtube-gamepad-hints">
               <span className="yt-hint"><span className="yt-hint-key">D-Pad</span> Navegar</span>
-              <span className="yt-hint"><span className="yt-hint-key">A</span> Selecionar</span>
-              <span className="yt-hint"><span className="yt-hint-key">B</span> Voltar</span>
-              <span className="yt-hint"><span className="yt-hint-key">Y</span> Play/Pause</span>
-              <span className="yt-hint"><span className="yt-hint-key">X</span> Fullscreen</span>
-              <span className="yt-hint"><span className="yt-hint-key">LB/RB</span> Seek</span>
-              <span className="yt-hint"><span className="yt-hint-key">LT/RT</span> Volume</span>
+              <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "✕" : "A"}</span> Selecionar</span>
+              <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "○" : "B"}</span> Voltar</span>
+              <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "△" : "Y"}</span> Play/Pause</span>
+              <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "□" : "X"}</span> Fullscreen</span>
+              <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "L1/R1" : "LB/RB"}</span> Seek</span>
+              <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "L2/R2" : "LT/RT"}</span> Volume</span>
             </div>
           )}
 
@@ -613,7 +666,7 @@ function App() {
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
-            {gamepadConnected ? "Start" : "ESC"} — Voltar
+            {gamepadConnected ? (currentTheme === "ps5" ? "Options" : "Start") : "ESC"} — Voltar
           </button>
         </div>
       )}
@@ -633,58 +686,126 @@ function App() {
 
       <div className="console-container">
         {/* Top Header Section */}
-        <header className="console-header">
-          <div className="logo-container">
-            <span className="logo-text">ATLAS</span>
-            <span className="logo-tag">LAUNCHER</span>
-          </div>
-
-          <div className="system-status">
-            {gamepadConnected && (
-              <div className="status-item gamepad-badge" style={{ color: "var(--accent-cyan)", borderColor: "rgba(6, 182, 212, 0.3)" }}>
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  style={{ marginRight: "0.35rem" }}
-                >
-                  <line x1="6" x2="10" y1="12" y2="12" />
-                  <line x1="8" x2="8" y1="10" y2="14" />
-                  <line x1="15" x2="15.01" y1="13" y2="13" />
-                  <line x1="18" x2="18.01" y1="11" y2="11" />
-                  <rect x="2" y="6" width="20" height="12" rx="3" />
-                </svg>
-                <span>Controle Conectado</span>
-              </div>
-            )}
-            <div className="status-item">
-              <span className={`status-dot ${isSimulated ? "simulated" : ""}`}></span>
-              <span>
-                {isSimulated ? "Biblioteca Simulada (Sem Steam)" : "Biblioteca Steam Sincronizada"}
-              </span>
+        {currentTheme === "ps5" ? (
+          <header className="ps5-header">
+            <div className="ps5-header-left">
+              <div className="ps5-menu-tab active">Jogos</div>
+              <div className="ps5-menu-tab">Mídia</div>
             </div>
-            <div className="system-time">{systemTime}</div>
-          </div>
-        </header>
+            <div className="ps5-header-right">
+              <button className="ps5-icon-btn" onClick={handleOpenYouTube} title="YouTube">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                </svg>
+              </button>
+              <button className="ps5-icon-btn" onClick={() => setSettingsOpen(true)} title="Configurações">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
+              </button>
+              <div className="ps5-avatar-circle" title="Perfil">
+                <div className="ps5-avatar-inner"></div>
+              </div>
+              <div className="ps5-time-display">{systemTime}</div>
+            </div>
+          </header>
+        ) : (
+          <header className="console-header">
+            <div className="logo-container">
+              <span className="logo-text">ATLAS</span>
+              <span className="logo-tag">LAUNCHER</span>
+            </div>
+
+            <div className="system-status">
+              {gamepadConnected && (
+                <div className="status-item gamepad-badge" style={{ color: "var(--accent-cyan)", borderColor: "rgba(6, 182, 212, 0.3)" }}>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ marginRight: "0.35rem" }}
+                  >
+                    <line x1="6" x2="10" y1="12" y2="12" />
+                    <line x1="8" x2="8" y1="10" y2="14" />
+                    <line x1="15" x2="15.01" y1="13" y2="13" />
+                    <line x1="18" x2="18.01" y1="11" y2="11" />
+                    <rect x="2" y="6" width="20" height="12" rx="3" />
+                  </svg>
+                  <span>Controle Conectado</span>
+                </div>
+              )}
+              <div className="status-item">
+                <span className={`status-dot ${isSimulated ? "simulated" : ""}`}></span>
+                <span>
+                  {isSimulated ? "Biblioteca Simulada (Sem Steam)" : "Biblioteca Steam Sincronizada"}
+                </span>
+              </div>
+              <div className="system-time">{systemTime}</div>
+            </div>
+          </header>
+        )}
 
         {/* Main Content Area */}
         <main className="console-content">
           <div className="game-info-panel">
             {activeGame && (
               <>
-                <h1 className="game-title-active">{activeGame.name}</h1>
-                <div className="game-meta-active">
-                  <span>
-                    Tipo: <span className="meta-pill">{activeGame.isCustom ? "Customizado" : "Steam"}</span>
-                  </span>
-                  <span>•</span>
-                  <span>{activeGame.isCustom ? "Atalho Local Executável" : `AppID: ${activeGame.appid}`}</span>
-                </div>
+                {currentTheme === "ps5" ? (
+                  <div className="ps5-game-hero-container">
+                    <div className="ps5-game-logo">{activeGame.name}</div>
+                    <div className="game-meta-active">
+                      <span>
+                        Tipo: <span className="meta-pill">{activeGame.isCustom ? "Customizado" : "Steam"}</span>
+                      </span>
+                      <span>•</span>
+                      <span>{activeGame.isCustom ? "Atalho Local Executável" : `AppID: ${activeGame.appid}`}</span>
+                    </div>
+                    <div className="ps5-hero-actions">
+                      <button className="ps5-play-btn" onClick={() => handleLaunchGame(activeGame)}>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M8 5v14l11-7z"/>
+                        </svg>
+                        Jogar
+                      </button>
+                    </div>
+                    
+                    <div className="ps5-widgets-row">
+                      {getGameWidgets(activeGame).map((w, idx) => (
+                        <div className="ps5-widget-card" key={idx}>
+                          <div className="ps5-widget-title">{w.title}</div>
+                          <div className="ps5-widget-desc">{w.desc}</div>
+                          {w.progress !== undefined ? (
+                            <div className="ps5-widget-progress-container">
+                              <span className="ps5-widget-value">{w.value}</span>
+                              <div className="ps5-widget-progress-bar">
+                                <div className="ps5-widget-progress-fill" style={{ width: `${w.progress}%` }}></div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="ps5-widget-value">{w.value}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <h1 className="game-title-active">{activeGame.name}</h1>
+                    <div className="game-meta-active">
+                      <span>
+                        Tipo: <span className="meta-pill">{activeGame.isCustom ? "Customizado" : "Steam"}</span>
+                      </span>
+                      <span>•</span>
+                      <span>{activeGame.isCustom ? "Atalho Local Executável" : `AppID: ${activeGame.appid}`}</span>
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -747,17 +868,29 @@ function App() {
             </div>
             <div className="hint-item">
               <span className="key-badge">Enter</span>
-              {gamepadConnected && <span className="key-badge" style={{ color: "var(--accent-cyan)" }}>Botão A</span>}
+              {gamepadConnected && (
+                <span className="key-badge" style={{ color: "var(--accent-cyan)" }}>
+                  {currentTheme === "ps5" ? "✕" : "Botão A"}
+                </span>
+              )}
               <span>Jogar</span>
             </div>
             <div className="hint-item">
               <span className="key-badge">S</span>
-              {gamepadConnected && <span className="key-badge" style={{ color: "var(--accent-cyan)" }}>Start</span>}
+              {gamepadConnected && (
+                <span className="key-badge" style={{ color: "var(--accent-cyan)" }}>
+                  {currentTheme === "ps5" ? "Options" : "Start"}
+                </span>
+              )}
               <span>Configurações</span>
             </div>
             <div className="hint-item">
               <span className="key-badge">Y</span>
-              {gamepadConnected && <span className="key-badge" style={{ color: "var(--accent-cyan)" }}>Botão Y</span>}
+              {gamepadConnected && (
+                <span className="key-badge" style={{ color: "var(--accent-cyan)" }}>
+                  {currentTheme === "ps5" ? "△" : "Botão Y"}
+                </span>
+              )}
               <span>YouTube</span>
             </div>
           </div>
@@ -820,6 +953,12 @@ function App() {
                 onClick={() => setSettingsTab("custom")}
               >
                 Jogos Customizados
+              </button>
+              <button
+                className={`settings-tab-btn ${settingsTab === "aparencia" ? "active" : ""}`}
+                onClick={() => setSettingsTab("aparencia")}
+              >
+                Aparência
               </button>
             </div>
 
@@ -944,6 +1083,49 @@ function App() {
                       </div>
                     ))
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* Tab 3: Aparência (Themes) */}
+            {settingsTab === "aparencia" && (
+              <div className="settings-section">
+                <div className="settings-row-theme-header">
+                  <span className="settings-label-title">Selecione o Tema do Console</span>
+                  <span className="settings-label-desc">Altere o visual geral, cores, fontes e comportamento estético do Atlas Launcher.</span>
+                </div>
+                <div className="theme-selector-grid">
+                  <div 
+                    className={`theme-selector-card ${currentTheme === "atlas" ? "active" : ""}`}
+                    onClick={() => setCurrentTheme("atlas")}
+                  >
+                    <div className="theme-preview-box atlas-theme-preview">
+                      <span className="preview-indicator"></span>
+                      <div className="theme-mini-logo">ATLAS</div>
+                      <div className="theme-color-dots">
+                        <span style={{ background: "#06b6d4" }}></span>
+                        <span style={{ background: "#3b82f6" }}></span>
+                        <span style={{ background: "#8b5cf6" }}></span>
+                      </div>
+                    </div>
+                    <div className="theme-card-title">Atlas (Padrão)</div>
+                  </div>
+
+                  <div 
+                    className={`theme-selector-card ${currentTheme === "ps5" ? "active" : ""}`}
+                    onClick={() => setCurrentTheme("ps5")}
+                  >
+                    <div className="theme-preview-box ps5-theme-preview">
+                      <span className="preview-indicator"></span>
+                      <div className="theme-mini-logo">PS5</div>
+                      <div className="theme-color-dots">
+                        <span style={{ background: "#0072CE" }}></span>
+                        <span style={{ background: "#ffffff" }}></span>
+                        <span style={{ background: "#0a0a0c" }}></span>
+                      </div>
+                    </div>
+                    <div className="theme-card-title">PlayStation 5</div>
+                  </div>
                 </div>
               </div>
             )}
