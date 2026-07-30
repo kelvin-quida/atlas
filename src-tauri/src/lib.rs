@@ -486,6 +486,179 @@ fn launch_custom_game(exe_path: &str) -> Result<String, String> {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+struct InstalledApp {
+    name: String,
+    path: String,
+}
+
+#[derive(serde::Serialize, Clone, Debug)]
+struct FileItem {
+    name: String,
+    path: String,
+    is_dir: bool,
+}
+
+#[tauri::command]
+fn get_installed_apps() -> Result<Vec<InstalledApp>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let script = r#"
+        $sh = New-Object -ComObject WScript.Shell
+        $paths = @(
+            "C:\ProgramData\Microsoft\Windows\Start Menu\Programs",
+            "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
+        )
+        $apps = [System.Collections.Generic.List[Object]]::new()
+        foreach ($p in $paths) {
+            if (Test-Path $p) {
+                Get-ChildItem -Path $p -Recurse -Filter *.lnk -ErrorAction SilentlyContinue | ForEach-Object {
+                    try {
+                        $lnk = $sh.CreateShortcut($_.FullName)
+                        $target = $lnk.TargetPath
+                        if ($target -and $target.EndsWith(".exe") -and (Test-Path $target)) {
+                            $apps.Add(@{
+                                name = $_.BaseName
+                                path = $target
+                            })
+                        }
+                    } catch {}
+                }
+            }
+        }
+        ConvertTo-Json -InputObject $apps -Compress
+        "#;
+
+        let output = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", script])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if stdout.is_empty() {
+                return Ok(Vec::new());
+            }
+            let apps: Vec<InstalledApp> = serde_json::from_str(&stdout)
+                .unwrap_or_else(|_| {
+                    if let Ok(single) = serde_json::from_str::<InstalledApp>(&stdout) {
+                        vec![single]
+                    } else {
+                        Vec::new()
+                    }
+                });
+            
+            let mut unique_apps = std::collections::HashMap::new();
+            for app in apps {
+                unique_apps.insert(app.path.clone(), app);
+            }
+            let mut result: Vec<InstalledApp> = unique_apps.into_values().collect();
+            result.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            Ok(result)
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).to_string())
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(vec![
+            InstalledApp { name: "Mock Game 1".to_string(), path: "/usr/bin/mock1".to_string() },
+            InstalledApp { name: "Mock Game 2".to_string(), path: "/usr/bin/mock2".to_string() },
+        ])
+    }
+}
+
+#[tauri::command]
+fn get_drives() -> Vec<String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut drives = Vec::new();
+        for letter in b'A'..=b'Z' {
+            let drive_path = format!("{}:\\", letter as char);
+            if Path::new(&drive_path).exists() {
+                drives.push(drive_path);
+            }
+        }
+        if drives.is_empty() {
+            drives.push("C:\\".to_string());
+        }
+        drives
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        vec!["/".to_string()]
+    }
+}
+
+#[tauri::command]
+fn list_dir_contents(path: &str, allowed_extensions: Vec<String>) -> Result<Vec<FileItem>, String> {
+    let dir_path = Path::new(path);
+    if !dir_path.exists() {
+        return Err("Diretório não existe".to_string());
+    }
+
+    let mut items = Vec::new();
+    let entries = std::fs::read_dir(dir_path).map_err(|e| e.to_string())?;
+
+    for entry in entries {
+        if let Ok(entry) = entry {
+            let file_type = entry.file_type();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let full_path = entry.path().to_string_lossy().into_owned();
+
+            if name.starts_with('.') || name.starts_with('$') {
+                continue;
+            }
+
+            if let Ok(ft) = file_type {
+                let is_dir = ft.is_dir();
+                if !is_dir && !allowed_extensions.is_empty() {
+                    let ext = entry.path().extension()
+                        .and_then(|e| e.to_str())
+                        .map(|s| s.to_lowercase())
+                        .unwrap_or_default();
+                    if !allowed_extensions.contains(&ext) {
+                        continue;
+                    }
+                }
+                items.push(FileItem {
+                    name,
+                    path: full_path,
+                    is_dir,
+                });
+            }
+        }
+    }
+
+    items.sort_by(|a, b| {
+        if a.is_dir != b.is_dir {
+            b.is_dir.cmp(&a.is_dir)
+        } else {
+            a.name.to_lowercase().cmp(&b.name.to_lowercase())
+        }
+    });
+
+    Ok(items)
+}
+
+#[tauri::command]
+fn get_parent_path(path: &str) -> Result<String, String> {
+    let p = Path::new(path);
+    match p.parent() {
+        Some(parent) => {
+            let parent_str = parent.to_string_lossy().into_owned();
+            if parent_str.is_empty() || parent_str == path {
+                Ok("".to_string())
+            } else {
+                Ok(parent_str)
+            }
+        }
+        None => Ok("".to_string()),
+    }
+}
+
+
 /// JavaScript initialization script injected into the YouTube TV webview.
 /// YouTube TV (Leanback) already has built-in spatial navigation for D-pad/remote.
 /// This script simply provides a bridge to simulate keyboard events from gamepad actions.
@@ -644,7 +817,11 @@ pub fn run() {
             launch_custom_game,
             open_youtube_webview,
             close_youtube_webview,
-            youtube_gamepad_action
+            youtube_gamepad_action,
+            get_installed_apps,
+            get_drives,
+            list_dir_contents,
+            get_parent_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

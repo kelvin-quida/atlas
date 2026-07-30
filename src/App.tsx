@@ -78,6 +78,67 @@ function App() {
   const [gamepadConnected, setGamepadConnected] = useState(false);
   const [youtubeActive, setYoutubeActive] = useState(false);
 
+  // States for settings navigation
+  const [settingsFocusArea, setSettingsFocusArea] = useState<"tabs" | "content" | "footer">("tabs");
+  const [settingsSelectedIndex, setSettingsSelectedIndex] = useState(0);
+
+  // Reset settings focus states when modal opens
+  useEffect(() => {
+    if (settingsOpen) {
+      setSettingsFocusArea("tabs");
+      setSettingsSelectedIndex(0);
+    }
+  }, [settingsOpen]);
+
+  // Reset settings index when tab changes
+  useEffect(() => {
+    setSettingsSelectedIndex(0);
+  }, [settingsTab]);
+
+  // Programmatic HTML element focusing based on current settings selection
+  useEffect(() => {
+    if (!settingsOpen) return;
+
+    let elementToFocus: HTMLElement | null = null;
+
+    if (settingsFocusArea === "tabs") {
+      if (settingsTab === "geral") {
+        elementToFocus = document.getElementById("settings-tab-geral");
+      } else if (settingsTab === "custom") {
+        elementToFocus = document.getElementById("settings-tab-custom");
+      } else if (settingsTab === "aparencia") {
+        elementToFocus = document.getElementById("settings-tab-aparencia");
+      }
+    } else if (settingsFocusArea === "footer") {
+      elementToFocus = document.getElementById("settings-close-btn");
+    } else if (settingsFocusArea === "content") {
+      if (settingsTab === "geral") {
+        if (settingsSelectedIndex === 0) {
+          elementToFocus = document.getElementById("geral-shell-toggle-input");
+        } else if (settingsSelectedIndex === 1) {
+          elementToFocus = document.getElementById("geral-recarregar-btn");
+        }
+      } else if (settingsTab === "aparencia") {
+        if (settingsSelectedIndex === 0) {
+          elementToFocus = document.getElementById("theme-card-atlas");
+        } else if (settingsSelectedIndex === 1) {
+          elementToFocus = document.getElementById("theme-card-ps5");
+        }
+      } else if (settingsTab === "custom") {
+        if (settingsSelectedIndex === 0) {
+          elementToFocus = document.getElementById("settings-add-custom-game-btn");
+        } else {
+          const deleteIdx = settingsSelectedIndex - 1;
+          elementToFocus = document.getElementById(`custom-delete-btn-${deleteIdx}`);
+        }
+      }
+    }
+
+    if (elementToFocus) {
+      elementToFocus.focus();
+    }
+  }, [settingsOpen, settingsTab, settingsFocusArea, settingsSelectedIndex]);
+
   // States for options menu and editing
   const [optionsMenuGame, setOptionsMenuGame] = useState<SteamGame | null>(null);
   const [optionsMenuSelectedIndex, setOptionsMenuSelectedIndex] = useState(0);
@@ -101,6 +162,22 @@ function App() {
   const [customExe, setCustomExe] = useState("");
   const [customImg, setCustomImg] = useState("");
 
+  // In-App File Explorer States
+  const [fileExplorerOpen, setFileExplorerOpen] = useState(false);
+  const [fileExplorerPath, setFileExplorerPath] = useState("");
+  const [fileExplorerItems, setFileExplorerItems] = useState<any[]>([]);
+  const [fileExplorerSelectedIndex, setFileExplorerSelectedIndex] = useState(0);
+  const [fileExplorerFilter, setFileExplorerFilter] = useState<string[]>([]);
+  const [fileExplorerOnSelect, setFileExplorerOnSelect] = useState<((path: string) => void) | null>(null);
+
+  // Xbox-Style Add Game Modal States
+  const [addGameModalOpen, setAddGameModalOpen] = useState(false);
+  const [installedApps, setInstalledApps] = useState<any[]>([]);
+  const [loadingApps, setLoadingApps] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [detectedSelectedIndex, setDetectedSelectedIndex] = useState(0);
+  const [addGameSelectedIndex, setAddGameSelectedIndex] = useState(0);
+
   const carouselRef = useRef<HTMLDivElement>(null);
   const lastInputTime = useRef<number>(0);
   const cooldown = 200; // ms
@@ -118,7 +195,19 @@ function App() {
     editingGame,
     customGames,
     focusArea,
-    headerSelectedIndex
+    headerSelectedIndex,
+    settingsFocusArea,
+    settingsSelectedIndex,
+    settingsTab,
+    currentTheme,
+    fileExplorerOpen,
+    fileExplorerSelectedIndex,
+    fileExplorerItems,
+    addGameModalOpen,
+    addGameSelectedIndex,
+    detectedSelectedIndex,
+    installedApps,
+    searchQuery
   });
 
   // Sync state values with ref
@@ -135,9 +224,21 @@ function App() {
       editingGame,
       customGames,
       focusArea,
-      headerSelectedIndex
+      headerSelectedIndex,
+      settingsFocusArea,
+      settingsSelectedIndex,
+      settingsTab,
+      currentTheme,
+      fileExplorerOpen,
+      fileExplorerSelectedIndex,
+      fileExplorerItems,
+      addGameModalOpen,
+      addGameSelectedIndex,
+      detectedSelectedIndex,
+      installedApps,
+      searchQuery
     };
-  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, youtubeActive, optionsMenuGame, optionsMenuSelectedIndex, editingGame, customGames, focusArea, headerSelectedIndex]);
+  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, youtubeActive, optionsMenuGame, optionsMenuSelectedIndex, editingGame, customGames, focusArea, headerSelectedIndex, settingsFocusArea, settingsSelectedIndex, settingsTab, currentTheme, fileExplorerOpen, fileExplorerSelectedIndex, fileExplorerItems, addGameModalOpen, addGameSelectedIndex, detectedSelectedIndex, installedApps, searchQuery]);
 
   const handleOpenYouTube = async () => {
     try {
@@ -268,75 +369,6 @@ function App() {
     }
   };
 
-  // Native file selection dialog wrapper
-  const handlePickExe = async () => {
-    try {
-      const path = await invoke<string>("pick_file", {
-        filter: "Executáveis (*.exe;*.sh;*.bin)|*.exe;*.sh;*.bin|Todos os Arquivos (*.*)|*.*",
-        title: "Selecione o Executável do Jogo"
-      });
-      setCustomExe(path);
-      // Auto-populate title if empty based on file name
-      if (!customName && path) {
-        const parts = path.replace(/\\/g, "/").split("/");
-        const fileName = parts[parts.length - 1];
-        const dotIndex = fileName.lastIndexOf(".");
-        setCustomName(dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName);
-      }
-    } catch (e) {
-      if (e !== "Canceled") {
-        alert(`Erro ao selecionar arquivo: ${e}`);
-      }
-    }
-  };
-
-  const handlePickImg = async () => {
-    try {
-      const path = await invoke<string>("pick_file", {
-        filter: "Imagens (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp",
-        title: "Selecione a Imagem da Capa"
-      });
-      setCustomImg(path);
-    } catch (e) {
-      if (e !== "Canceled") {
-        alert(`Erro ao selecionar imagem: ${e}`);
-      }
-    }
-  };
-
-  const handleAddCustomGameSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customName || !customExe) {
-      alert("Por favor, preencha pelo menos o Nome e o Executável.");
-      return;
-    }
-
-    const newGame: SteamGame = {
-      appid: `custom-${Date.now()}`,
-      name: customName,
-      installdir: "",
-      library_path: "",
-      image_url: customImg,
-      isCustom: true,
-      exe_path: customExe
-    };
-
-    const updated = [...customGames, newGame];
-    setCustomGames(updated);
-    localStorage.setItem("atlas_custom_games", JSON.stringify(updated));
-
-    // Reset form
-    setCustomName("");
-    setCustomExe("");
-    setCustomImg("");
-  };
-
-  const handleDeleteCustomGame = (appid: string) => {
-    const updated = customGames.filter((g) => g.appid !== appid);
-    setCustomGames(updated);
-    localStorage.setItem("atlas_custom_games", JSON.stringify(updated));
-  };
-
   const handleTryLaunchGame = (game: SteamGame) => {
     setOptionsMenuSelectedIndex(0);
     setOptionsMenuGame(game);
@@ -365,12 +397,133 @@ function App() {
   const triggerOptionRef = useRef<any>(null);
   triggerOptionRef.current = triggerOption;
 
-  const handleEditPickExe = async () => {
-    try {
-      const path = await invoke<string>("pick_file", {
-        filter: "Executáveis (*.exe;*.sh;*.bin)|*.exe;*.sh;*.bin|Todos os Arquivos (*.*)|*.*",
-        title: "Selecione o Executável do Jogo"
+  // Custom File Explorer and Add Custom Game Helpers
+  const openFileExplorer = (
+    allowedExts: string[], 
+    onSelect: (path: string) => void
+  ) => {
+    setFileExplorerFilter(allowedExts);
+    setFileExplorerOnSelect(() => onSelect);
+    
+    invoke<string[]>("get_drives")
+      .then((drives) => {
+        setFileExplorerPath("");
+        const items = drives.map(drive => ({
+          name: `Disco Local (${drive})`,
+          path: drive,
+          is_dir: true
+        }));
+        setFileExplorerItems(items);
+        setFileExplorerSelectedIndex(0);
+        setFileExplorerOpen(true);
+      })
+      .catch((err) => {
+        console.error("Erro ao carregar drives:", err);
+        setFileExplorerPath("");
+        setFileExplorerItems([]);
+        setFileExplorerSelectedIndex(0);
+        setFileExplorerOpen(true);
       });
+  };
+
+  const navigateToPath = (newPath: string) => {
+    if (newPath === "") {
+      invoke<string[]>("get_drives")
+        .then((drives) => {
+          setFileExplorerPath("");
+          const items = drives.map(drive => ({
+            name: `Disco Local (${drive})`,
+            path: drive,
+            is_dir: true
+          }));
+          setFileExplorerItems(items);
+          setFileExplorerSelectedIndex(0);
+        })
+        .catch((err) => {
+          console.error("Erro ao carregar drives:", err);
+        });
+      return;
+    }
+
+    invoke<any[]>("list_dir_contents", { path: newPath, allowedExtensions: fileExplorerFilter })
+      .then((items) => {
+        setFileExplorerPath(newPath);
+        const parentItem = {
+          name: ".. (Voltar)",
+          path: "..",
+          is_dir: true
+        };
+        setFileExplorerItems([parentItem, ...items]);
+        setFileExplorerSelectedIndex(0);
+      })
+      .catch((err) => {
+        alert(`Não foi possível acessar a pasta: ${err}`);
+      });
+  };
+
+  const handleFileExplorerSelect = async (item: any) => {
+    if (item.path === "..") {
+      try {
+        const parent = await invoke<string>("get_parent_path", { path: fileExplorerPath });
+        navigateToPath(parent);
+      } catch (err) {
+        console.error(err);
+      }
+    } else if (item.is_dir) {
+      navigateToPath(item.path);
+    } else {
+      if (fileExplorerOnSelect) {
+        fileExplorerOnSelect(item.path);
+      }
+      setFileExplorerOpen(false);
+    }
+  };
+
+  const handleFileExplorerSelectRef = useRef<any>(null);
+  handleFileExplorerSelectRef.current = handleFileExplorerSelect;
+
+  const openAddGameModal = () => {
+    setCustomName("");
+    setCustomExe("");
+    setCustomImg("");
+    setSearchQuery("");
+    setDetectedSelectedIndex(0);
+    setAddGameSelectedIndex(0);
+    
+    setLoadingApps(true);
+    invoke<any[]>("get_installed_apps")
+      .then((apps) => {
+        setInstalledApps(apps);
+        setLoadingApps(false);
+      })
+      .catch((err) => {
+        console.error("Erro ao obter apps instalados:", err);
+        setLoadingApps(false);
+      });
+      
+    setAddGameModalOpen(true);
+  };
+
+  const handlePickExe = () => {
+    openFileExplorer(["exe", "sh", "bin"], (path) => {
+      setCustomExe(path);
+      if (!customName && path) {
+        const parts = path.replace(/\\/g, "/").split("/");
+        const fileName = parts[parts.length - 1];
+        const dotIndex = fileName.lastIndexOf(".");
+        setCustomName(dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName);
+      }
+    });
+  };
+
+  const handlePickImg = () => {
+    openFileExplorer(["png", "jpg", "jpeg", "webp"], (path) => {
+      setCustomImg(path);
+    });
+  };
+
+  const handleEditPickExe = () => {
+    openFileExplorer(["exe", "sh", "bin"], (path) => {
       setEditExe(path);
       if (!editName && path) {
         const parts = path.replace(/\\/g, "/").split("/");
@@ -378,25 +531,47 @@ function App() {
         const dotIndex = fileName.lastIndexOf(".");
         setEditName(dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName);
       }
-    } catch (e) {
-      if (e !== "Canceled") {
-        alert(`Erro ao selecionar arquivo: ${e}`);
-      }
-    }
+    });
   };
 
-  const handleEditPickImg = async () => {
-    try {
-      const path = await invoke<string>("pick_file", {
-        filter: "Imagens (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp",
-        title: "Selecione a Imagem da Capa"
-      });
+  const handleEditPickImg = () => {
+    openFileExplorer(["png", "jpg", "jpeg", "webp"], (path) => {
       setEditImg(path);
-    } catch (e) {
-      if (e !== "Canceled") {
-        alert(`Erro ao selecionar imagem: ${e}`);
-      }
+    });
+  };
+
+  const handleAddCustomGameSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!customName || !customExe) {
+      alert("Por favor, preencha pelo menos o Nome e o Executável.");
+      return;
     }
+
+    const newGame: SteamGame = {
+      appid: `custom-${Date.now()}`,
+      name: customName,
+      installdir: "",
+      library_path: "",
+      image_url: customImg,
+      isCustom: true,
+      exe_path: customExe
+    };
+
+    const updated = [...customGames, newGame];
+    setCustomGames(updated);
+    localStorage.setItem("atlas_custom_games", JSON.stringify(updated));
+
+    // Reset form
+    setCustomName("");
+    setCustomExe("");
+    setCustomImg("");
+    setAddGameModalOpen(false);
+  };
+
+  const handleDeleteCustomGame = (appid: string) => {
+    const updated = customGames.filter((g) => g.appid !== appid);
+    setCustomGames(updated);
+    localStorage.setItem("atlas_custom_games", JSON.stringify(updated));
   };
 
   const handleEditCustomGameSubmit = (e: React.FormEvent) => {
@@ -423,6 +598,162 @@ function App() {
     localStorage.setItem("atlas_custom_games", JSON.stringify(updated));
     setEditingGame(null);
   };
+
+  // Refs for scrolling container
+  const detectedListRef = useRef<HTMLDivElement | null>(null);
+  const fileExplorerListRef = useRef<HTMLDivElement | null>(null);
+
+  // Auto-scroll to center active elements
+  useEffect(() => {
+    if (detectedListRef.current && addGameModalOpen) {
+      const container = detectedListRef.current;
+      const items = container.getElementsByClassName("detected-app-item");
+      const activeItem = items[detectedSelectedIndex] as HTMLElement;
+      if (activeItem) {
+        activeItem.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+    }
+  }, [detectedSelectedIndex, addGameModalOpen]);
+
+  useEffect(() => {
+    if (fileExplorerListRef.current && fileExplorerOpen) {
+      const container = fileExplorerListRef.current;
+      const items = container.getElementsByClassName("file-explorer-item");
+      const activeItem = items[fileExplorerSelectedIndex] as HTMLElement;
+      if (activeItem) {
+        activeItem.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+    }
+  }, [fileExplorerSelectedIndex, fileExplorerOpen, fileExplorerItems]);
+
+  // Focus helper for AddGameModal
+  useEffect(() => {
+    if (!addGameModalOpen) return;
+    
+    let elementToFocus: HTMLElement | null = null;
+
+    if (addGameSelectedIndex === 0) {
+      elementToFocus = document.getElementById("add-game-search-input");
+    } else if (addGameSelectedIndex === 1) {
+      elementToFocus = document.getElementById("add-game-manual-browse-btn");
+    } else if (addGameSelectedIndex === 2) {
+      elementToFocus = document.getElementById(`detected-app-item-${detectedSelectedIndex}`);
+    } else if (addGameSelectedIndex === 3) {
+      elementToFocus = document.getElementById("add-game-custom-name");
+    } else if (addGameSelectedIndex === 4) {
+      elementToFocus = document.getElementById("add-game-custom-exe-btn");
+    } else if (addGameSelectedIndex === 5) {
+      elementToFocus = document.getElementById("add-game-custom-img");
+    } else if (addGameSelectedIndex === 6) {
+      elementToFocus = document.getElementById("add-game-custom-img-btn");
+    } else if (addGameSelectedIndex === 7) {
+      elementToFocus = document.getElementById("add-game-submit-btn");
+    } else if (addGameSelectedIndex === 8) {
+      elementToFocus = document.getElementById("add-game-cancel-btn");
+    }
+
+    if (elementToFocus) {
+      elementToFocus.focus();
+    }
+  }, [addGameModalOpen, addGameSelectedIndex, detectedSelectedIndex, installedApps, searchQuery]);
+
+  // Focus helper for File Explorer
+  useEffect(() => {
+    if (!fileExplorerOpen) return;
+    
+    const elementToFocus = document.getElementById(`file-explorer-item-${fileExplorerSelectedIndex}`);
+    if (elementToFocus) {
+      elementToFocus.focus();
+    }
+  }, [fileExplorerOpen, fileExplorerSelectedIndex, fileExplorerItems]);
+
+  // Keydown listener for Keyboard Navigation inside AddGameModal
+  useEffect(() => {
+    const handleAddGameKeys = (e: KeyboardEvent) => {
+      if (!addGameModalOpen || fileExplorerOpen) return;
+      const fApps = installedApps.filter((app) => app.name.toLowerCase().includes(searchQuery.toLowerCase()));
+
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (addGameSelectedIndex === 2) {
+          if (detectedSelectedIndex > 0) {
+            setDetectedSelectedIndex((prev) => prev - 1);
+          } else {
+            setAddGameSelectedIndex(0);
+          }
+        } else {
+          setAddGameSelectedIndex((prev) => {
+            if (prev === 0) return 8;
+            if (prev === 3) return fApps.length > 0 ? 2 : 0;
+            return prev - 1;
+          });
+        }
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (addGameSelectedIndex === 2) {
+          if (detectedSelectedIndex < fApps.length - 1) {
+            setDetectedSelectedIndex((prev) => prev + 1);
+          } else {
+            setAddGameSelectedIndex(3);
+          }
+        } else {
+          setAddGameSelectedIndex((prev) => {
+            if (prev === 8) return 0;
+            if (prev === 0 || prev === 1) return fApps.length > 0 ? 2 : 3;
+            if (prev === 2) return 3;
+            return prev + 1;
+          });
+        }
+      } else if (e.key === "ArrowLeft") {
+        if (addGameSelectedIndex === 1) {
+          e.preventDefault();
+          setAddGameSelectedIndex(0);
+        } else if (addGameSelectedIndex === 8) {
+          e.preventDefault();
+          setAddGameSelectedIndex(7);
+        }
+      } else if (e.key === "ArrowRight") {
+        if (addGameSelectedIndex === 0) {
+          e.preventDefault();
+          setAddGameSelectedIndex(1);
+        } else if (addGameSelectedIndex === 7) {
+          e.preventDefault();
+          setAddGameSelectedIndex(8);
+        }
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setAddGameModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleAddGameKeys);
+    return () => window.removeEventListener("keydown", handleAddGameKeys);
+  }, [addGameModalOpen, addGameSelectedIndex, detectedSelectedIndex, installedApps, searchQuery, fileExplorerOpen]);
+
+  // Keydown listener for Keyboard Navigation inside In-App File Explorer
+  useEffect(() => {
+    const handleFileExplorerKeys = (e: KeyboardEvent) => {
+      if (!fileExplorerOpen) return;
+
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setFileExplorerSelectedIndex((prev) => (prev > 0 ? prev - 1 : fileExplorerItems.length - 1));
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setFileExplorerSelectedIndex((prev) => (prev < fileExplorerItems.length - 1 ? prev + 1 : 0));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const selectedItem = fileExplorerItems[fileExplorerSelectedIndex];
+        if (selectedItem) {
+          handleFileExplorerSelect(selectedItem);
+        }
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setFileExplorerOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleFileExplorerKeys);
+    return () => window.removeEventListener("keydown", handleFileExplorerKeys);
+  }, [fileExplorerOpen, fileExplorerSelectedIndex, fileExplorerItems]);
 
   // Clock initialization
   useEffect(() => {
@@ -554,11 +885,109 @@ function App() {
       if (e.key === "Escape" || e.key === "s" || e.key === "S") {
         e.preventDefault();
         setSettingsOpen(false);
+        return;
+      }
+
+      if (e.key === "Enter") {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement) {
+          // If it's a text input, let default Enter behavior happen (form submission, etc.)
+          if (!(active instanceof HTMLInputElement && active.type === "text")) {
+            e.preventDefault();
+            active.click();
+            return;
+          }
+        }
+      }
+
+      if (settingsFocusArea === "tabs") {
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          setSettingsTab((prev) => {
+            if (prev === "geral") return "aparencia";
+            if (prev === "custom") return "geral";
+            return "custom";
+          });
+        } else if (e.key === "ArrowRight") {
+          e.preventDefault();
+          setSettingsTab((prev) => {
+            if (prev === "geral") return "custom";
+            if (prev === "custom") return "aparencia";
+            return "geral";
+          });
+        } else if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSettingsFocusArea("content");
+          setSettingsSelectedIndex(0);
+        }
+      } else if (settingsFocusArea === "content") {
+        if (settingsTab === "geral") {
+          // 0: Shell toggle, 1: Recarregar
+          if (e.key === "ArrowUp") {
+            e.preventDefault();
+            if (settingsSelectedIndex === 0) {
+              setSettingsFocusArea("tabs");
+            } else {
+              setSettingsSelectedIndex(0);
+            }
+          } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            if (settingsSelectedIndex === 1) {
+              setSettingsFocusArea("footer");
+            } else {
+              setSettingsSelectedIndex(1);
+            }
+          }
+        } else if (settingsTab === "aparencia") {
+          // 0: Atlas card, 1: PS5 card
+          if (e.key === "ArrowLeft") {
+            e.preventDefault();
+            setSettingsSelectedIndex(0);
+          } else if (e.key === "ArrowRight") {
+            e.preventDefault();
+            setSettingsSelectedIndex(1);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setSettingsFocusArea("tabs");
+          } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setSettingsFocusArea("footer");
+          }
+        } else if (settingsTab === "custom") {
+          const maxIdx = customGames.length;
+          if (e.key === "ArrowUp") {
+            e.preventDefault();
+            if (settingsSelectedIndex === 0) {
+              setSettingsFocusArea("tabs");
+            } else {
+              setSettingsSelectedIndex((prev) => prev - 1);
+            }
+          } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            if (settingsSelectedIndex >= maxIdx) {
+              setSettingsFocusArea("footer");
+            } else {
+              setSettingsSelectedIndex((prev) => prev + 1);
+            }
+          }
+        }
+      } else if (settingsFocusArea === "footer") {
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSettingsFocusArea("content");
+          if (settingsTab === "geral") {
+            setSettingsSelectedIndex(1);
+          } else if (settingsTab === "aparencia") {
+            setSettingsSelectedIndex(currentTheme === "ps5" ? 1 : 0);
+          } else if (settingsTab === "custom") {
+            setSettingsSelectedIndex(customGames.length);
+          }
+        }
       }
     };
     window.addEventListener("keydown", handleSettingsKeys);
     return () => window.removeEventListener("keydown", handleSettingsKeys);
-  }, [settingsOpen]);
+  }, [settingsOpen, settingsFocusArea, settingsSelectedIndex, settingsTab, customGames, currentTheme]);
 
   // Scroll carousel to center active card
   useEffect(() => {
@@ -630,7 +1059,20 @@ function App() {
             optionsMenuSelectedIndex: selectedOptionIdx,
             editingGame: isEditing,
             focusArea,
-            headerSelectedIndex
+            headerSelectedIndex,
+            settingsFocusArea: sFocusArea,
+            settingsSelectedIndex: sSelectedIndex,
+            settingsTab: sTab,
+            currentTheme: sCurrentTheme,
+            customGames: sCustomGames,
+            fileExplorerOpen: isFileExplorerOpen,
+            fileExplorerSelectedIndex: fileExplorerIdx,
+            fileExplorerItems: fileExplorerItms,
+            addGameModalOpen: isAddGameOpen,
+            addGameSelectedIndex: addGameIdx,
+            detectedSelectedIndex: detectedIdx,
+            installedApps: instApps,
+            searchQuery: sQuery
           } = stateRef.current;
 
           if (!isLoading && !isLaunching) {
@@ -696,6 +1138,94 @@ function App() {
               } else if (stickY > 0.6) {
                 sendAction("scroll_down");
               }
+            } else if (isFileExplorerOpen) {
+              if (dpadUp || stickY < -0.5) {
+                setFileExplorerSelectedIndex((prev) => (prev > 0 ? prev - 1 : fileExplorerItms.length - 1));
+                inputTriggered = true;
+              } else if (dpadDown || stickY > 0.5) {
+                setFileExplorerSelectedIndex((prev) => (prev < fileExplorerItms.length - 1 ? prev + 1 : 0));
+                inputTriggered = true;
+              } else if (btnA) {
+                const selectedItem = fileExplorerItms[fileExplorerIdx];
+                if (selectedItem) {
+                  handleFileExplorerSelectRef.current?.(selectedItem);
+                }
+                inputTriggered = true;
+              } else if (btnB) {
+                setFileExplorerOpen(false);
+                inputTriggered = true;
+              }
+            } else if (isAddGameOpen) {
+              const fApps = instApps.filter((app: any) => app.name.toLowerCase().includes(sQuery.toLowerCase()));
+              if (btnB) {
+                setAddGameModalOpen(false);
+                inputTriggered = true;
+              } else if (addGameIdx === 2) {
+                if (dpadUp || stickY < -0.5) {
+                  if (detectedIdx > 0) {
+                    setDetectedSelectedIndex(detectedIdx - 1);
+                  } else {
+                    setAddGameSelectedIndex(0);
+                  }
+                  inputTriggered = true;
+                } else if (dpadDown || stickY > 0.5) {
+                  if (detectedIdx < fApps.length - 1) {
+                    setDetectedSelectedIndex(detectedIdx + 1);
+                  } else {
+                    setAddGameSelectedIndex(3);
+                  }
+                  inputTriggered = true;
+                } else if (btnA) {
+                  const app = fApps[detectedIdx];
+                  if (app) {
+                    setCustomName(app.name);
+                    setCustomExe(app.path);
+                    setAddGameSelectedIndex(7);
+                  }
+                  inputTriggered = true;
+                }
+              } else {
+                if (dpadUp || stickY < -0.5) {
+                  setAddGameSelectedIndex((prev) => {
+                    if (prev === 0) return 8;
+                    if (prev === 3) return fApps.length > 0 ? 2 : 0;
+                    return prev - 1;
+                  });
+                  inputTriggered = true;
+                } else if (dpadDown || stickY > 0.5) {
+                  setAddGameSelectedIndex((prev) => {
+                    if (prev === 8) return 0;
+                    if (prev === 0 || prev === 1) return fApps.length > 0 ? 2 : 3;
+                    if (prev === 2) return 3;
+                    return prev + 1;
+                  });
+                  inputTriggered = true;
+                } else if (dpadLeft || stickX < -0.5) {
+                  if (addGameIdx === 1) {
+                    setAddGameSelectedIndex(0);
+                    inputTriggered = true;
+                  } else if (addGameIdx === 8) {
+                    setAddGameSelectedIndex(7);
+                    inputTriggered = true;
+                  }
+                } else if (dpadRight || stickX > 0.5) {
+                  if (addGameIdx === 0) {
+                    setAddGameSelectedIndex(1);
+                    inputTriggered = true;
+                  } else if (addGameIdx === 7) {
+                    setAddGameSelectedIndex(8);
+                    inputTriggered = true;
+                  }
+                } else if (btnA) {
+                  const active = document.activeElement;
+                  if (active instanceof HTMLElement) {
+                    if (!(active instanceof HTMLInputElement && active.type === "text")) {
+                      active.click();
+                      inputTriggered = true;
+                    }
+                  }
+                }
+              }
             } else if (isEditing) {
               if (btnB) {
                 setEditingGame(null);
@@ -705,6 +1235,96 @@ function App() {
               if (btnB) {
                 setSettingsOpen(false);
                 inputTriggered = true;
+              } else if (btnA) {
+                const active = document.activeElement;
+                if (active instanceof HTMLElement) {
+                  // If it's a text input, let default behavior handle typing focus, don't trigger click
+                  if (!(active instanceof HTMLInputElement && active.type === "text")) {
+                    active.click();
+                    inputTriggered = true;
+                  }
+                }
+              } else if (sFocusArea === "tabs") {
+                if (dpadLeft || stickX < -0.5) {
+                  setSettingsTab((prev) => {
+                    if (prev === "geral") return "aparencia";
+                    if (prev === "custom") return "geral";
+                    return "custom";
+                  });
+                  inputTriggered = true;
+                } else if (dpadRight || stickX > 0.5) {
+                  setSettingsTab((prev) => {
+                    if (prev === "geral") return "custom";
+                    if (prev === "custom") return "aparencia";
+                    return "geral";
+                  });
+                  inputTriggered = true;
+                } else if (dpadDown || stickY > 0.5) {
+                  setSettingsFocusArea("content");
+                  setSettingsSelectedIndex(0);
+                  inputTriggered = true;
+                }
+              } else if (sFocusArea === "content") {
+                if (sTab === "geral") {
+                  if (dpadUp || stickY < -0.5) {
+                    if (sSelectedIndex === 0) {
+                      setSettingsFocusArea("tabs");
+                    } else {
+                      setSettingsSelectedIndex(0);
+                    }
+                    inputTriggered = true;
+                  } else if (dpadDown || stickY > 0.5) {
+                    if (sSelectedIndex === 1) {
+                      setSettingsFocusArea("footer");
+                    } else {
+                      setSettingsSelectedIndex(1);
+                    }
+                    inputTriggered = true;
+                  }
+                } else if (sTab === "aparencia") {
+                  if (dpadLeft || stickX < -0.5) {
+                    setSettingsSelectedIndex(0);
+                    inputTriggered = true;
+                  } else if (dpadRight || stickX > 0.5) {
+                    setSettingsSelectedIndex(1);
+                    inputTriggered = true;
+                  } else if (dpadUp || stickY < -0.5) {
+                    setSettingsFocusArea("tabs");
+                    inputTriggered = true;
+                  } else if (dpadDown || stickY > 0.5) {
+                    setSettingsFocusArea("footer");
+                    inputTriggered = true;
+                  }
+                } else if (sTab === "custom") {
+                  const maxIdx = sCustomGames.length;
+                  if (dpadUp || stickY < -0.5) {
+                    if (sSelectedIndex === 0) {
+                      setSettingsFocusArea("tabs");
+                    } else {
+                      setSettingsSelectedIndex((prev) => prev - 1);
+                    }
+                    inputTriggered = true;
+                  } else if (dpadDown || stickY > 0.5) {
+                    if (sSelectedIndex >= maxIdx) {
+                      setSettingsFocusArea("footer");
+                    } else {
+                      setSettingsSelectedIndex((prev) => prev + 1);
+                    }
+                    inputTriggered = true;
+                  }
+                }
+              } else if (sFocusArea === "footer") {
+                if (dpadUp || stickY < -0.5) {
+                  setSettingsFocusArea("content");
+                  if (sTab === "geral") {
+                    setSettingsSelectedIndex(1);
+                  } else if (sTab === "aparencia") {
+                    setSettingsSelectedIndex(sCurrentTheme === "ps5" ? 1 : 0);
+                  } else if (sTab === "custom") {
+                    setSettingsSelectedIndex(sCustomGames.length);
+                  }
+                  inputTriggered = true;
+                }
               }
             } else if (isOptionsMenuOpen) {
               const availableOptions = isOptionsMenuOpen.isCustom 
@@ -1125,33 +1745,36 @@ function App() {
         <div className="settings-overlay" onClick={() => setSettingsOpen(false)}>
           <div className="settings-card" onClick={(e) => e.stopPropagation()}>
             <h2>Configurações do Atlas</h2>
-
+ 
             {/* Tab navigation inside settings */}
             <div className="settings-tabs">
               <button
-                className={`settings-tab-btn ${settingsTab === "geral" ? "active" : ""}`}
+                id="settings-tab-geral"
+                className={`settings-tab-btn ${settingsTab === "geral" ? "active" : ""} ${settingsFocusArea === "tabs" && settingsTab === "geral" ? "focused" : ""}`}
                 onClick={() => setSettingsTab("geral")}
               >
                 Geral
               </button>
               <button
-                className={`settings-tab-btn ${settingsTab === "custom" ? "active" : ""}`}
+                id="settings-tab-custom"
+                className={`settings-tab-btn ${settingsTab === "custom" ? "active" : ""} ${settingsFocusArea === "tabs" && settingsTab === "custom" ? "focused" : ""}`}
                 onClick={() => setSettingsTab("custom")}
               >
                 Jogos Customizados
               </button>
               <button
-                className={`settings-tab-btn ${settingsTab === "aparencia" ? "active" : ""}`}
+                id="settings-tab-aparencia"
+                className={`settings-tab-btn ${settingsTab === "aparencia" ? "active" : ""} ${settingsFocusArea === "tabs" && settingsTab === "aparencia" ? "focused" : ""}`}
                 onClick={() => setSettingsTab("aparencia")}
               >
                 Aparência
               </button>
             </div>
-
+ 
             {/* Tab 1: Geral */}
             {settingsTab === "geral" && (
               <div className="settings-section">
-                <div className="settings-row">
+                <div className={`settings-row ${settingsFocusArea === "content" && settingsSelectedIndex === 0 ? "focused" : ""}`}>
                   <div className="settings-label">
                     <span className="settings-label-title">Iniciar como Shell do Windows</span>
                     <span className="settings-label-desc">
@@ -1160,26 +1783,32 @@ function App() {
                   </div>
                   <label className="switch">
                     <input
+                      id="geral-shell-toggle-input"
                       type="checkbox"
                       checked={shellEnabled}
                       onChange={(e) => handleToggleShell(e.target.checked)}
+                      className={settingsFocusArea === "content" && settingsSelectedIndex === 0 ? "focused" : ""}
                     />
                     <span className="slider"></span>
                   </label>
                 </div>
-
-                <div className="settings-row">
+ 
+                <div className={`settings-row ${settingsFocusArea === "content" && settingsSelectedIndex === 1 ? "focused" : ""}`}>
                   <div className="settings-label">
                     <span className="settings-label-title">Recarregar Biblioteca</span>
                     <span className="settings-label-desc">
                       Força uma nova varredura nas pastas locais do Steam para detectar novos jogos instalados.
                     </span>
                   </div>
-                  <button className="btn-secondary" onClick={() => { loadGames(); setSettingsOpen(false); }}>
+                  <button 
+                    id="geral-recarregar-btn"
+                    className={`btn-secondary ${settingsFocusArea === "content" && settingsSelectedIndex === 1 ? "focused" : ""}`}
+                    onClick={() => { loadGames(); setSettingsOpen(false); }}
+                  >
                     Recarregar
                   </button>
                 </div>
-
+ 
                 {isSimulated && (
                   <div className="settings-alert">
                     ⚠️ **Aviso:** O Steam local ou a API do Tauri não foram detectados. A interface está exibindo jogos de teste e operando em modo de simulação. Instale o Rust e configure o app no Windows para habilitar o comportamento nativo.
@@ -1191,57 +1820,19 @@ function App() {
             {/* Tab 2: Custom Games Manager */}
             {settingsTab === "custom" && (
               <div className="settings-section">
-                {/* Form to add custom game */}
-                <form className="custom-game-form" onSubmit={handleAddCustomGameSubmit}>
-                  <div className="form-group">
-                    <label>Nome do Jogo *</label>
-                    <div className="input-row">
-                      <input
-                        type="text"
-                        placeholder="Ex: Cyberpunk 2077"
-                        value={customName}
-                        onChange={(e) => setCustomName(e.target.value)}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label>Arquivo Executável *</label>
-                    <div className="input-row">
-                      <input
-                        type="text"
-                        placeholder="Escolha o arquivo .exe do jogo"
-                        value={customExe}
-                        onChange={(e) => setCustomExe(e.target.value)}
-                        required
-                        readOnly
-                      />
-                      <button type="button" className="btn-secondary" onClick={handlePickExe}>
-                        Buscar
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label>Imagem da Capa (Opcional - Arquivo local ou URL)</label>
-                    <div className="input-row">
-                      <input
-                        type="text"
-                        placeholder="Escolha uma imagem ou cole a URL"
-                        value={customImg}
-                        onChange={(e) => setCustomImg(e.target.value)}
-                      />
-                      <button type="button" className="btn-secondary" onClick={handlePickImg}>
-                        Buscar
-                      </button>
-                    </div>
-                  </div>
-
-                  <button type="submit" className="btn-primary" style={{ marginTop: "0.5rem" }}>
-                    Adicionar Jogo
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+                  <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                    Gerencie seus atalhos manuais de jogos
+                  </span>
+                  <button
+                    id="settings-add-custom-game-btn"
+                    type="button"
+                    className={`btn-primary ${settingsFocusArea === "content" && settingsSelectedIndex === 0 ? "focused" : ""}`}
+                    onClick={openAddGameModal}
+                  >
+                    + Adicionar Jogo
                   </button>
-                </form>
+                </div>
 
                 {/* List of custom games */}
                 <div className="custom-games-list">
@@ -1253,26 +1844,31 @@ function App() {
                       Nenhum jogo customizado adicionado ainda.
                     </div>
                   ) : (
-                    customGames.map((game) => (
-                      <div key={game.appid} className="custom-game-item">
-                        <div className="custom-game-item-info">
-                          <span className="custom-game-item-name">{game.name}</span>
-                          <span className="custom-game-item-path" title={game.exe_path}>{game.exe_path}</span>
+                    customGames.map((game, index) => {
+                      const itemIdx = 1 + index;
+                      const isItemFocused = settingsFocusArea === "content" && settingsSelectedIndex === itemIdx;
+                      return (
+                        <div key={game.appid} className={`custom-game-item ${isItemFocused ? "focused" : ""}`}>
+                          <div className="custom-game-item-info">
+                            <span className="custom-game-item-name">{game.name}</span>
+                            <span className="custom-game-item-path" title={game.exe_path}>{game.exe_path}</span>
+                          </div>
+                          <button
+                            id={`custom-delete-btn-${index}`}
+                            type="button"
+                            className={`btn-delete ${isItemFocused ? "focused" : ""}`}
+                            onClick={() => handleDeleteCustomGame(game.appid)}
+                          >
+                            Excluir
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          className="btn-delete"
-                          onClick={() => handleDeleteCustomGame(game.appid)}
-                        >
-                          Excluir
-                        </button>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
             )}
-
+ 
             {/* Tab 3: Aparência (Themes) */}
             {settingsTab === "aparencia" && (
               <div className="settings-section">
@@ -1282,7 +1878,9 @@ function App() {
                 </div>
                 <div className="theme-selector-grid">
                   <div 
-                    className={`theme-selector-card ${currentTheme === "atlas" ? "active" : ""}`}
+                    id="theme-card-atlas"
+                    tabIndex={0}
+                    className={`theme-selector-card ${currentTheme === "atlas" ? "active" : ""} ${settingsFocusArea === "content" && settingsSelectedIndex === 0 ? "focused" : ""}`}
                     onClick={() => setCurrentTheme("atlas")}
                   >
                     <div className="theme-preview-box atlas-theme-preview">
@@ -1296,9 +1894,11 @@ function App() {
                     </div>
                     <div className="theme-card-title">Atlas (Padrão)</div>
                   </div>
-
+ 
                   <div 
-                    className={`theme-selector-card ${currentTheme === "ps5" ? "active" : ""}`}
+                    id="theme-card-ps5"
+                    tabIndex={0}
+                    className={`theme-selector-card ${currentTheme === "ps5" ? "active" : ""} ${settingsFocusArea === "content" && settingsSelectedIndex === 1 ? "focused" : ""}`}
                     onClick={() => setCurrentTheme("ps5")}
                   >
                     <div className="theme-preview-box ps5-theme-preview">
@@ -1315,12 +1915,24 @@ function App() {
                 </div>
               </div>
             )}
-
+ 
             <div className="settings-footer">
-              <button className="btn-primary" onClick={() => setSettingsOpen(false)}>
+              <button 
+                id="settings-close-btn"
+                className={`btn-primary ${settingsFocusArea === "footer" ? "focused" : ""}`}
+                onClick={() => setSettingsOpen(false)}
+              >
                 Fechar [ESC]
               </button>
             </div>
+
+            {gamepadConnected && (
+              <div className="modal-gamepad-hints" style={{ marginTop: "1rem" }}>
+                <span className="yt-hint"><span className="yt-hint-key">D-Pad</span> Navegar</span>
+                <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "✕" : "A"}</span> Selecionar</span>
+                <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "○" : "B"}</span> Voltar</span>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1465,6 +2077,248 @@ function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Xbox-Style Add Game Modal */}
+      {addGameModalOpen && (
+        <div className="settings-overlay add-game-overlay" onClick={() => setAddGameModalOpen(false)}>
+          <div className="settings-card add-game-card" onClick={(e) => e.stopPropagation()}>
+            <h2>Adicionar Jogo à Biblioteca</h2>
+
+            <div className="add-game-layout">
+              {/* Left Column: Installed Apps List */}
+              <div className="add-game-list-section">
+                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "1rem" }}>
+                  <div className="search-wrapper" style={{ flex: 1, position: "relative" }}>
+                    <input
+                      id="add-game-search-input"
+                      type="text"
+                      placeholder="Pesquisar jogos instalados..."
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        setDetectedSelectedIndex(0);
+                      }}
+                      className={addGameSelectedIndex === 0 ? "focused" : ""}
+                    />
+                    <span className="search-icon-hint">Y</span>
+                  </div>
+                  
+                  <button
+                    id="add-game-manual-browse-btn"
+                    type="button"
+                    title="Procurar pasta do jogo manualmente"
+                    className={`btn-secondary browse-folder-btn ${addGameSelectedIndex === 1 ? "focused" : ""}`}
+                    onClick={handlePickExe}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                    </svg>
+                  </button>
+                </div>
+
+                <div className="detected-apps-list" ref={detectedListRef}>
+                  {loadingApps ? (
+                    <div className="apps-list-empty">Buscando jogos instalados no PC...</div>
+                  ) : (() => {
+                    const fApps = installedApps.filter((app) => app.name.toLowerCase().includes(searchQuery.toLowerCase()));
+                    if (fApps.length === 0) {
+                      return <div className="apps-list-empty">Nenhum jogo encontrado. Use a pasta ao lado para procurar manualmente.</div>;
+                    }
+                    return fApps.map((app, index) => {
+                      const isSelected = addGameSelectedIndex === 2 && detectedSelectedIndex === index;
+                      return (
+                        <div
+                          key={app.path + "-" + index}
+                          id={`detected-app-item-${index}`}
+                          tabIndex={0}
+                          className={`detected-app-item ${isSelected ? "focused" : ""}`}
+                          onClick={() => {
+                            setCustomName(app.name);
+                            setCustomExe(app.path);
+                            setAddGameSelectedIndex(7); // Select "Adicionar" button
+                          }}
+                        >
+                          <div className="app-icon-placeholder">🎮</div>
+                          <div className="app-info">
+                            <span className="app-name">{app.name}</span>
+                            <span className="app-path" title={app.path}>{app.path}</span>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+
+              {/* Right Column: Customization Details Form */}
+              <div className="add-game-form-section">
+                <form onSubmit={handleAddCustomGameSubmit} style={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                    <div className="form-group">
+                      <label>Nome do Jogo *</label>
+                      <div className="input-row">
+                        <input
+                          id="add-game-custom-name"
+                          type="text"
+                          placeholder="Ex: Cyberpunk 2077"
+                          value={customName}
+                          onChange={(e) => setCustomName(e.target.value)}
+                          className={addGameSelectedIndex === 3 ? "focused" : ""}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label>Arquivo Executável *</label>
+                      <div className="input-row">
+                        <input
+                          type="text"
+                          placeholder="Clique em Buscar ou escolha da lista"
+                          value={customExe}
+                          onChange={(e) => setCustomExe(e.target.value)}
+                          className={addGameSelectedIndex === 4 ? "focused" : ""}
+                          required
+                          readOnly
+                        />
+                        <button
+                          id="add-game-custom-exe-btn"
+                          type="button"
+                          className={`btn-secondary ${addGameSelectedIndex === 4 ? "focused" : ""}`}
+                          onClick={handlePickExe}
+                        >
+                          Buscar
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label>Imagem da Capa (Opcional - Local ou URL)</label>
+                      <div className="input-row">
+                        <input
+                          id="add-game-custom-img"
+                          type="text"
+                          placeholder="Escolha imagem ou cole a URL"
+                          value={customImg}
+                          onChange={(e) => setCustomImg(e.target.value)}
+                          className={addGameSelectedIndex === 5 ? "focused" : ""}
+                        />
+                        <button
+                          id="add-game-custom-img-btn"
+                          type="button"
+                          className={`btn-secondary ${addGameSelectedIndex === 6 ? "focused" : ""}`}
+                          onClick={handlePickImg}
+                        >
+                          Buscar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="settings-footer" style={{ padding: 0, marginTop: "1.5rem" }}>
+                    <button
+                      id="add-game-cancel-btn"
+                      type="button"
+                      className={`btn-secondary ${addGameSelectedIndex === 8 ? "focused" : ""}`}
+                      onClick={() => setAddGameModalOpen(false)}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      id="add-game-submit-btn"
+                      type="submit"
+                      className={`btn-primary ${addGameSelectedIndex === 7 ? "focused" : ""}`}
+                    >
+                      Adicionar Jogo
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+
+            {gamepadConnected && (
+              <div className="modal-gamepad-hints" style={{ marginTop: "1rem" }}>
+                <span className="yt-hint"><span className="yt-hint-key">⇅</span> Navegar</span>
+                <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "✕" : "A"}</span> Selecionar / Confirmar</span>
+                <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "○" : "B"}</span> Cancelar / Voltar</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* File Explorer Modal */}
+      {fileExplorerOpen && (
+        <div className="settings-overlay file-explorer-overlay" onClick={() => setFileExplorerOpen(false)}>
+          <div className="settings-card file-explorer-card" onClick={(e) => e.stopPropagation()}>
+            <h2>Explorador de Arquivos Atlas</h2>
+            
+            <div className="file-explorer-path-bar">
+              <span>Caminho:</span>
+              <strong>{fileExplorerPath || "Meu Computador (Unidades de Disco)"}</strong>
+            </div>
+
+            <div 
+              className="file-explorer-list" 
+              ref={fileExplorerListRef}
+            >
+              {fileExplorerItems.length === 0 ? (
+                <div className="file-explorer-empty">Nenhum arquivo ou pasta compatível encontrado nesta pasta.</div>
+              ) : (
+                fileExplorerItems.map((item, index) => {
+                  const isSelected = fileExplorerSelectedIndex === index;
+                  let icon = "📁";
+                  if (item.path === "..") {
+                    icon = "↩️";
+                  } else if (!item.is_dir) {
+                    const ext = item.path.split('.').pop()?.toLowerCase();
+                    if (ext === "exe" || ext === "sh" || ext === "bin") {
+                      icon = "🎮";
+                    } else if (["png", "jpg", "jpeg", "webp"].includes(ext || "")) {
+                      icon = "🖼️";
+                    } else {
+                      icon = "📄";
+                    }
+                  } else if (fileExplorerPath === "") {
+                    icon = "💾";
+                  }
+                  
+                  return (
+                    <div
+                      key={item.path + "-" + index}
+                      id={`file-explorer-item-${index}`}
+                      tabIndex={0}
+                      className={`file-explorer-item ${isSelected ? "focused" : ""}`}
+                      onClick={() => handleFileExplorerSelect(item)}
+                    >
+                      <span className="file-explorer-icon">{icon}</span>
+                      <span className="file-explorer-name">{item.name}</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="settings-footer" style={{ marginTop: "1rem" }}>
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                onClick={() => setFileExplorerOpen(false)}
+              >
+                Fechar
+              </button>
+            </div>
+            
+            {gamepadConnected && (
+              <div className="modal-gamepad-hints" style={{ marginTop: "1.25rem" }}>
+                <span className="yt-hint"><span className="yt-hint-key">⇅</span> Navegar</span>
+                <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "✕" : "A"}</span> Entrar / Selecionar</span>
+                <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "○" : "B"}</span> Voltar</span>
+              </div>
+            )}
           </div>
         </div>
       )}
