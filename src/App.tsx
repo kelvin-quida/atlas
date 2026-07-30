@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import "./App.css";
 
 interface SteamGame {
@@ -8,6 +8,8 @@ interface SteamGame {
   installdir: string;
   library_path: string;
   image_url: string;
+  isCustom?: boolean;
+  exe_path?: string;
 }
 
 // Gorgeous mock games to display in dev environment or if Steam isn't installed
@@ -57,16 +59,24 @@ const MOCK_GAMES: SteamGame[] = [
 ];
 
 function App() {
+  const [steamGames, setSteamGames] = useState<SteamGame[]>([]);
+  const [customGames, setCustomGames] = useState<SteamGame[]>([]);
   const [games, setGames] = useState<SteamGame[]>([]);
   const [selectedGameIndex, setSelectedGameIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [isSimulated, setIsSimulated] = useState(false);
   const [launchingGame, setLaunchingGame] = useState<SteamGame | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"geral" | "custom">("geral");
   const [shellEnabled, setShellEnabled] = useState(false);
   const [systemTime, setSystemTime] = useState("");
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
   const [gamepadConnected, setGamepadConnected] = useState(false);
+
+  // Form states for adding custom game
+  const [customName, setCustomName] = useState("");
+  const [customExe, setCustomExe] = useState("");
+  const [customImg, setCustomImg] = useState("");
 
   const carouselRef = useRef<HTMLDivElement>(null);
   const lastInputTime = useRef<number>(0);
@@ -92,20 +102,45 @@ function App() {
     try {
       const list = await invoke<SteamGame[]>("get_installed_games");
       if (list && list.length > 0) {
-        setGames(list);
+        setSteamGames(list);
         setIsSimulated(false);
       } else {
-        setGames(MOCK_GAMES);
+        setSteamGames(MOCK_GAMES);
         setIsSimulated(true);
       }
     } catch (err) {
       console.warn("Failed to contact Tauri backend, falling back to mock library.", err);
-      setGames(MOCK_GAMES);
+      setSteamGames(MOCK_GAMES);
       setIsSimulated(true);
     } finally {
       setLoading(false);
     }
   };
+
+  // Load custom games from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem("atlas_custom_games");
+    if (saved) {
+      try {
+        setCustomGames(JSON.parse(saved));
+      } catch (e) {
+        console.error("Failed to parse custom games:", e);
+      }
+    }
+  }, []);
+
+  // Merge steamGames and customGames when either changes
+  useEffect(() => {
+    const merged = [...steamGames, ...customGames];
+    // Sort games alphabetically by name
+    merged.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    setGames(merged);
+
+    // Safeguard selection index bounds
+    if (selectedGameIndex >= merged.length && merged.length > 0) {
+      setSelectedGameIndex(merged.length - 1);
+    }
+  }, [steamGames, customGames]);
 
   // Check if custom registry Windows shell replacement is currently enabled
   const checkShellStatus = async () => {
@@ -128,16 +163,24 @@ function App() {
     }
   };
 
-  // Launch selected Steam game
+  // Launch selected game (Steam or Custom)
   const handleLaunchGame = async (game: SteamGame) => {
     setLaunchingGame(game);
     try {
-      if (isSimulated) {
-        // Simulated launch experience for demonstration
-        await new Promise((resolve) => setTimeout(resolve, 2500));
+      if (game.isCustom) {
+        if (isSimulated) {
+          await new Promise((resolve) => setTimeout(resolve, 2500));
+        } else {
+          await invoke("launch_custom_game", { exePath: game.exe_path });
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
       } else {
-        await invoke("launch_game", { appid: game.appid });
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        if (isSimulated) {
+          await new Promise((resolve) => setTimeout(resolve, 2500));
+        } else {
+          await invoke("launch_game", { appid: game.appid });
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
       }
     } catch (err) {
       console.error(err);
@@ -145,6 +188,75 @@ function App() {
     } finally {
       setLaunchingGame(null);
     }
+  };
+
+  // Native file selection dialog wrapper
+  const handlePickExe = async () => {
+    try {
+      const path = await invoke<string>("pick_file", {
+        filter: "Executáveis (*.exe;*.sh;*.bin)|*.exe;*.sh;*.bin|Todos os Arquivos (*.*)|*.*",
+        title: "Selecione o Executável do Jogo"
+      });
+      setCustomExe(path);
+      // Auto-populate title if empty based on file name
+      if (!customName && path) {
+        const parts = path.replace(/\\/g, "/").split("/");
+        const fileName = parts[parts.length - 1];
+        const dotIndex = fileName.lastIndexOf(".");
+        setCustomName(dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName);
+      }
+    } catch (e) {
+      if (e !== "Canceled") {
+        alert(`Erro ao selecionar arquivo: ${e}`);
+      }
+    }
+  };
+
+  const handlePickImg = async () => {
+    try {
+      const path = await invoke<string>("pick_file", {
+        filter: "Imagens (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp",
+        title: "Selecione a Imagem da Capa"
+      });
+      setCustomImg(path);
+    } catch (e) {
+      if (e !== "Canceled") {
+        alert(`Erro ao selecionar imagem: ${e}`);
+      }
+    }
+  };
+
+  const handleAddCustomGameSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customName || !customExe) {
+      alert("Por favor, preencha pelo menos o Nome e o Executável.");
+      return;
+    }
+
+    const newGame: SteamGame = {
+      appid: `custom-${Date.now()}`,
+      name: customName,
+      installdir: "",
+      library_path: "",
+      image_url: customImg,
+      isCustom: true,
+      exe_path: customExe
+    };
+
+    const updated = [...customGames, newGame];
+    setCustomGames(updated);
+    localStorage.setItem("atlas_custom_games", JSON.stringify(updated));
+
+    // Reset form
+    setCustomName("");
+    setCustomExe("");
+    setCustomImg("");
+  };
+
+  const handleDeleteCustomGame = (appid: string) => {
+    const updated = customGames.filter((g) => g.appid !== appid);
+    setCustomGames(updated);
+    localStorage.setItem("atlas_custom_games", JSON.stringify(updated));
   };
 
   // Clock initialization
@@ -322,9 +434,34 @@ function App() {
 
   const activeGame = games[selectedGameIndex];
 
-  // Dynamic ambient hero background url
+  // Resolve image source for local vs remote images
+  const getGameImageUrl = (game: SteamGame) => {
+    if (!game.image_url) return "";
+    if (game.image_url.startsWith("http://") || game.image_url.startsWith("https://") || game.image_url.startsWith("data:")) {
+      return game.image_url;
+    }
+    try {
+      return convertFileSrc(game.image_url);
+    } catch (e) {
+      console.error("Failed to convert file src:", e);
+      return "";
+    }
+  };
+
+  // Generate consistent premium CSS background gradient based on name hash
+  const getGradientBg = (name: string) => {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const h1 = Math.abs(hash % 360);
+    const h2 = Math.abs((hash + 80) % 360);
+    return `linear-gradient(135deg, hsl(${h1}, 65%, 22%) 0%, hsl(${h2}, 65%, 10%) 100%)`;
+  };
+
+  // Resolve background ambient glow url
   const ambientBackgroundUrl = activeGame
-    ? `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${activeGame.appid}/library_hero.jpg`
+    ? getGameImageUrl(activeGame)
     : "";
 
   return (
@@ -333,9 +470,14 @@ function App() {
       <div
         className="ambient-bg"
         style={{
-          backgroundImage: activeGame ? `url(${ambientBackgroundUrl}), url(${activeGame.image_url})` : "none",
+          backgroundImage: activeGame && activeGame.image_url ? `url(${ambientBackgroundUrl})` : "none",
+          backgroundColor: activeGame && !activeGame.image_url ? "transparent" : "var(--bg-primary)",
         }}
-      ></div>
+      >
+        {activeGame && !activeGame.image_url && (
+          <div style={{ width: "100%", height: "100%", background: getGradientBg(activeGame.name), opacity: 0.15 }}></div>
+        )}
+      </div>
       <div className="ambient-overlay"></div>
 
       <div className="console-container">
@@ -387,10 +529,10 @@ function App() {
                 <h1 className="game-title-active">{activeGame.name}</h1>
                 <div className="game-meta-active">
                   <span>
-                    AppID: <span className="meta-pill">{activeGame.appid}</span>
+                    Tipo: <span className="meta-pill">{activeGame.isCustom ? "Customizado" : "Steam"}</span>
                   </span>
                   <span>•</span>
-                  <span>Steam Library Folder</span>
+                  <span>{activeGame.isCustom ? "Atalho Local Executável" : `AppID: ${activeGame.appid}`}</span>
                 </div>
               </>
             )}
@@ -405,7 +547,7 @@ function App() {
               <div className="games-carousel" ref={carouselRef}>
                 {games.map((game, index) => {
                   const isFocused = index === selectedGameIndex;
-                  const isErr = imageErrors[game.appid];
+                  const isErr = imageErrors[game.appid] || !game.image_url;
 
                   return (
                     <div
@@ -420,14 +562,14 @@ function App() {
                       }}
                     >
                       {isErr ? (
-                        <div className="game-card-placeholder">
-                          <div className="placeholder-tag">Steam Game</div>
+                        <div className="game-card-placeholder" style={{ background: getGradientBg(game.name) }}>
+                          <div className="placeholder-tag">{game.isCustom ? "Jogo Custom" : "Jogo Steam"}</div>
                           <div className="placeholder-text">{game.name}</div>
                         </div>
                       ) : (
                         <div className="game-card-img-wrapper">
                           <img
-                            src={game.image_url}
+                            src={getGameImageUrl(game)}
                             alt={game.name}
                             className="game-card-img"
                             onError={() => handleImageError(game.appid)}
@@ -489,7 +631,7 @@ function App() {
           <div className="spinner"></div>
           <h2 style={{ fontWeight: 600, fontSize: "1.8rem" }}>Iniciando {launchingGame.name}...</h2>
           <p style={{ color: "var(--text-secondary)", marginTop: "0.5rem" }}>
-            {isSimulated ? "Simulando execução do jogo no modo desenvolvedor" : "Aguardando Steam carregar o processo"}
+            {gamepadConnected ? "Processo iniciado no controle..." : "Executando processo secundário..."}
           </p>
         </div>
       )}
@@ -500,40 +642,144 @@ function App() {
           <div className="settings-card" onClick={(e) => e.stopPropagation()}>
             <h2>Configurações do Atlas</h2>
 
-            <div className="settings-section">
-              <div className="settings-row">
-                <div className="settings-label">
-                  <span className="settings-label-title">Iniciar como Shell do Windows</span>
-                  <span className="settings-label-desc">
-                    Substitui o Explorer.exe pelo Atlas para este usuário, iniciando direto na sua biblioteca de jogos ao ligar o PC.
-                  </span>
-                </div>
-                <label className="switch">
-                  <input
-                    type="checkbox"
-                    checked={shellEnabled}
-                    onChange={(e) => handleToggleShell(e.target.checked)}
-                  />
-                  <span className="slider"></span>
-                </label>
-              </div>
-
-              <div className="settings-row">
-                <div className="settings-label">
-                  <span className="settings-label-title">Recarregar Biblioteca</span>
-                  <span className="settings-label-desc">
-                    Força uma nova varredura nas pastas locais do Steam para detectar novos jogos instalados.
-                  </span>
-                </div>
-                <button className="btn-secondary" onClick={() => { loadGames(); setSettingsOpen(false); }}>
-                  Recarregar
-                </button>
-              </div>
+            {/* Tab navigation inside settings */}
+            <div className="settings-tabs">
+              <button
+                className={`settings-tab-btn ${settingsTab === "geral" ? "active" : ""}`}
+                onClick={() => setSettingsTab("geral")}
+              >
+                Geral
+              </button>
+              <button
+                className={`settings-tab-btn ${settingsTab === "custom" ? "active" : ""}`}
+                onClick={() => setSettingsTab("custom")}
+              >
+                Jogos Customizados
+              </button>
             </div>
 
-            {isSimulated && (
-              <div className="settings-alert">
-                ⚠️ **Aviso:** O Steam local ou a API do Tauri não foram detectados. A interface está exibindo jogos de teste e operando em modo de simulação. Instale o Rust e configure o app no Windows para habilitar o comportamento nativo.
+            {/* Tab 1: Geral */}
+            {settingsTab === "geral" && (
+              <div className="settings-section">
+                <div className="settings-row">
+                  <div className="settings-label">
+                    <span className="settings-label-title">Iniciar como Shell do Windows</span>
+                    <span className="settings-label-desc">
+                      Substitui o Explorer.exe pelo Atlas para este usuário, iniciando direto na sua biblioteca de jogos ao ligar o PC.
+                    </span>
+                  </div>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={shellEnabled}
+                      onChange={(e) => handleToggleShell(e.target.checked)}
+                    />
+                    <span className="slider"></span>
+                  </label>
+                </div>
+
+                <div className="settings-row">
+                  <div className="settings-label">
+                    <span className="settings-label-title">Recarregar Biblioteca</span>
+                    <span className="settings-label-desc">
+                      Força uma nova varredura nas pastas locais do Steam para detectar novos jogos instalados.
+                    </span>
+                  </div>
+                  <button className="btn-secondary" onClick={() => { loadGames(); setSettingsOpen(false); }}>
+                    Recarregar
+                  </button>
+                </div>
+
+                {isSimulated && (
+                  <div className="settings-alert">
+                    ⚠️ **Aviso:** O Steam local ou a API do Tauri não foram detectados. A interface está exibindo jogos de teste e operando em modo de simulação. Instale o Rust e configure o app no Windows para habilitar o comportamento nativo.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Tab 2: Custom Games Manager */}
+            {settingsTab === "custom" && (
+              <div className="settings-section">
+                {/* Form to add custom game */}
+                <form className="custom-game-form" onSubmit={handleAddCustomGameSubmit}>
+                  <div className="form-group">
+                    <label>Nome do Jogo *</label>
+                    <div className="input-row">
+                      <input
+                        type="text"
+                        placeholder="Ex: Cyberpunk 2077"
+                        value={customName}
+                        onChange={(e) => setCustomName(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Arquivo Executável *</label>
+                    <div className="input-row">
+                      <input
+                        type="text"
+                        placeholder="Escolha o arquivo .exe do jogo"
+                        value={customExe}
+                        onChange={(e) => setCustomExe(e.target.value)}
+                        required
+                        readOnly
+                      />
+                      <button type="button" className="btn-secondary" onClick={handlePickExe}>
+                        Buscar
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Imagem da Capa (Opcional - Arquivo local ou URL)</label>
+                    <div className="input-row">
+                      <input
+                        type="text"
+                        placeholder="Escolha uma imagem ou cole a URL"
+                        value={customImg}
+                        onChange={(e) => setCustomImg(e.target.value)}
+                      />
+                      <button type="button" className="btn-secondary" onClick={handlePickImg}>
+                        Buscar
+                      </button>
+                    </div>
+                  </div>
+
+                  <button type="submit" className="btn-primary" style={{ marginTop: "0.5rem" }}>
+                    Adicionar Jogo
+                  </button>
+                </form>
+
+                {/* List of custom games */}
+                <div className="custom-games-list">
+                  <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                    Jogos Adicionados ({customGames.length})
+                  </span>
+                  {customGames.length === 0 ? (
+                    <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", fontStyle: "italic", marginTop: "0.5rem" }}>
+                      Nenhum jogo customizado adicionado ainda.
+                    </div>
+                  ) : (
+                    customGames.map((game) => (
+                      <div key={game.appid} className="custom-game-item">
+                        <div className="custom-game-item-info">
+                          <span className="custom-game-item-name">{game.name}</span>
+                          <span className="custom-game-item-path" title={game.exe_path}>{game.exe_path}</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-delete"
+                          onClick={() => handleDeleteCustomGame(game.appid)}
+                        >
+                          Excluir
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             )}
 

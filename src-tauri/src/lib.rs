@@ -357,6 +357,134 @@ fn toggle_shell_replacement(enable: bool) -> Result<String, String> {
     }
 }
 
+#[tauri::command]
+fn pick_file(filter: &str, title: &str) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let script = format!(
+            r#"
+            Add-Type -AssemblyName System.Windows.Forms;
+            $FileBrowser = New-Object System.Windows.Forms.OpenFileDialog;
+            $FileBrowser.Filter = "{}";
+            $FileBrowser.Title = "{}";
+            $Show = $FileBrowser.ShowDialog();
+            if ($Show -eq "OK") {{ Write-Host $FileBrowser.FileName -NoNewline }}
+            "#,
+            filter, title
+        );
+        
+        let output = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &script])
+            .output()
+            .map_err(|e| e.to_string())?;
+            
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if path.is_empty() {
+                Err("Canceled".to_string())
+            } else {
+                Ok(path)
+            }
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).to_string())
+        }
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        let output = std::process::Command::new("zenity")
+            .args(["--file-selection", &format!("--title={}", title)])
+            .output();
+            
+        match output {
+            Ok(out) => {
+                if out.status.success() {
+                    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if path.is_empty() {
+                        Err("Canceled".to_string())
+                    } else {
+                        Ok(path)
+                    }
+                } else {
+                    Err("Canceled or failed".to_string())
+                }
+            }
+            Err(_) => {
+                let output2 = std::process::Command::new("kdialog")
+                    .args(["--getopenfilename", ".", "*"])
+                    .output();
+                match output2 {
+                    Ok(out2) if out2.status.success() => {
+                        let path = String::from_utf8_lossy(&out2.stdout).trim().to_string();
+                        if path.is_empty() {
+                            Err("Canceled".to_string())
+                        } else {
+                            Ok(path)
+                        }
+                    }
+                    _ => Err("Nenhum seletor de arquivos encontrado no Linux".to_string())
+                }
+            }
+        }
+    }
+    
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err("Plataforma não suportada para seleção de arquivos".to_string())
+    }
+}
+
+#[tauri::command]
+fn launch_custom_game(exe_path: &str) -> Result<String, String> {
+    let path = Path::new(exe_path);
+    if !path.exists() {
+        return Err("O arquivo executável não existe no caminho especificado.".to_string());
+    }
+    
+    let parent_dir = path.parent()
+        .ok_or_else(|| "Não foi possível obter o diretório do executável.".to_string())?;
+        
+    #[cfg(target_os = "windows")]
+    {
+        // Use PowerShell's Start-Process because it uses ShellExecute under the hood.
+        // This resolves "The requested operation requires elevation (os error 740)" by showing the UAC prompt if needed!
+        let status = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!(
+                    "Start-Process -FilePath '{}' -WorkingDirectory '{}'",
+                    path.to_string_lossy().replace("'", "''"),
+                    parent_dir.to_string_lossy().replace("'", "''")
+                )
+            ])
+            .status();
+            
+        match status {
+            Ok(s) if s.success() => Ok("Jogo customizado iniciado com sucesso".to_string()),
+            Ok(s) => Err(format!("O PowerShell retornou código de erro: {}", s)),
+            Err(e) => Err(format!("Falha ao executar o comando PowerShell: {}", e)),
+        }
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        let status = std::process::Command::new(path)
+            .current_dir(parent_dir)
+            .spawn();
+            
+        match status {
+            Ok(_) => Ok("Jogo customizado iniciado com sucesso".to_string()),
+            Err(e) => Err(format!("Falha ao executar o processo: {}", e)),
+        }
+    }
+    
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err("Plataforma não suportada".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -365,7 +493,9 @@ pub fn run() {
             get_installed_games,
             launch_game,
             is_shell_replacement_enabled,
-            toggle_shell_replacement
+            toggle_shell_replacement,
+            pick_file,
+            launch_custom_game
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
