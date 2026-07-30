@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use tauri::Manager;
 
 #[derive(serde::Serialize, Clone)]
 struct SteamGame {
@@ -485,17 +486,165 @@ fn launch_custom_game(exe_path: &str) -> Result<String, String> {
     }
 }
 
+/// JavaScript initialization script injected into the YouTube TV webview.
+/// YouTube TV (Leanback) already has built-in spatial navigation for D-pad/remote.
+/// This script simply provides a bridge to simulate keyboard events from gamepad actions.
+const YOUTUBE_TV_INIT_SCRIPT: &str = r#"
+(function() {
+    if (window.__ATLAS_TV_INJECTED) return;
+    window.__ATLAS_TV_INJECTED = true;
+
+    // ── Simulate a keyboard event on the focused element or document ──
+    function simulateKey(key, code, keyCode) {
+        const target = document.activeElement || document.body;
+        const opts = {
+            key: key,
+            code: code,
+            keyCode: keyCode,
+            which: keyCode,
+            bubbles: true,
+            cancelable: true
+        };
+        target.dispatchEvent(new KeyboardEvent('keydown', opts));
+        target.dispatchEvent(new KeyboardEvent('keyup', opts));
+    }
+
+    // ── Public API for Tauri eval() ──
+    window.__ATLAS_TV = function(action) {
+        switch(action) {
+            // Navigation — YouTube TV uses arrow keys natively
+            case 'navigate_up':    simulateKey('ArrowUp',    'ArrowUp',    38); break;
+            case 'navigate_down':  simulateKey('ArrowDown',  'ArrowDown',  40); break;
+            case 'navigate_left':  simulateKey('ArrowLeft',  'ArrowLeft',  37); break;
+            case 'navigate_right': simulateKey('ArrowRight', 'ArrowRight', 39); break;
+
+            // Select — Enter key
+            case 'click':          simulateKey('Enter', 'Enter', 13); break;
+
+            // Back — Escape/Backspace (YouTube TV uses both)
+            case 'back':           simulateKey('Escape', 'Escape', 27); break;
+
+            // Play/Pause — Space bar or 'k' (YouTube shortcut)
+            case 'play_pause':     simulateKey(' ', 'Space', 32); break;
+
+            // Seek — Left/Right arrows also seek when player is focused
+            // but we use dedicated shortcuts for reliability
+            case 'seek_back':      simulateKey('j', 'KeyJ', 74); break;  // -10s
+            case 'seek_forward':   simulateKey('l', 'KeyL', 76); break;  // +10s
+
+            // Volume — up/down arrows in player context, or direct manipulation
+            case 'volume_up': {
+                const v = document.querySelector('video');
+                if (v) v.volume = Math.min(1, v.volume + 0.1);
+                break;
+            }
+            case 'volume_down': {
+                const v = document.querySelector('video');
+                if (v) v.volume = Math.max(0, v.volume - 0.1);
+                break;
+            }
+
+            // Fullscreen — 'f' is YouTube's fullscreen toggle
+            case 'fullscreen':     simulateKey('f', 'KeyF', 70); break;
+        }
+    };
+
+    console.log('[Atlas] YouTube TV gamepad bridge injected.');
+})();
+"#;
+
+#[tauri::command]
+async fn open_youtube_webview(app: tauri::AppHandle) -> Result<(), String> {
+    let main_window = app.get_window("main")
+        .ok_or_else(|| "Janela principal não encontrada".to_string())?;
+
+    // Se o webview já existe, não faz nada
+    if app.get_webview("youtube").is_some() {
+        return Ok(());
+    }
+
+    let scale_factor = main_window.scale_factor().map_err(|e| e.to_string())?;
+    let size = main_window.inner_size().map_err(|e| e.to_string())?;
+
+    let header_height_logical = 60.0;
+    let header_height_physical = (header_height_logical * scale_factor) as u32;
+
+    let webview_pos = tauri::PhysicalPosition::new(0, header_height_physical as i32);
+    let webview_size = tauri::PhysicalSize::new(size.width, size.height.saturating_sub(header_height_physical));
+
+    // YouTube TV (Leanback) — interface nativa para controles/TV
+    let youtube_url = tauri::Url::parse("https://www.youtube.com/tv").unwrap();
+
+    let webview_builder = tauri::WebviewBuilder::new(
+        "youtube",
+        tauri::WebviewUrl::External(youtube_url)
+    )
+    // User-agent de Smart TV para que o YouTube sirva a interface Leanback completa
+    .user_agent("Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Version/5.0 TV Safari/537.36")
+    .initialization_script(YOUTUBE_TV_INIT_SCRIPT)
+    .auto_resize();
+
+    main_window.add_child(webview_builder, webview_pos, webview_size)
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn youtube_gamepad_action(app: tauri::AppHandle, action: String) -> Result<(), String> {
+    if let Some(webview) = app.get_webview("youtube") {
+        let js = format!(
+            "if (window.__ATLAS_TV) {{ window.__ATLAS_TV('{}'); }}",
+            action.replace('\\', "\\\\").replace('\'', "\\'")
+        );
+        webview.eval(&js).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn close_youtube_webview(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(webview) = app.get_webview("youtube") {
+        webview.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Resized(size) = event {
+                if window.label() == "main" {
+                    if let Some(youtube) = window.get_webview("youtube") {
+                        if let Ok(scale_factor) = window.scale_factor() {
+                            let header_height_physical = (60.0 * scale_factor) as u32;
+                            if size.height > header_height_physical {
+                                let _ = youtube.set_position(tauri::PhysicalPosition::new(
+                                    0,
+                                    header_height_physical as i32
+                                ));
+                                let _ = youtube.set_size(tauri::PhysicalSize::new(
+                                    size.width,
+                                    size.height - header_height_physical
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             get_installed_games,
             launch_game,
             is_shell_replacement_enabled,
             toggle_shell_replacement,
             pick_file,
-            launch_custom_game
+            launch_custom_game,
+            open_youtube_webview,
+            close_youtube_webview,
+            youtube_gamepad_action
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

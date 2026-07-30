@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./App.css";
 
 interface SteamGame {
@@ -72,6 +73,7 @@ function App() {
   const [systemTime, setSystemTime] = useState("");
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
   const [gamepadConnected, setGamepadConnected] = useState(false);
+  const [youtubeActive, setYoutubeActive] = useState(false);
 
   // Form states for adding custom game
   const [customName, setCustomName] = useState("");
@@ -88,13 +90,36 @@ function App() {
     selectedGameIndex,
     settingsOpen,
     launchingGame,
-    loading
+    loading,
+    youtubeActive
   });
 
   // Sync state values with ref
   useEffect(() => {
-    stateRef.current = { games, selectedGameIndex, settingsOpen, launchingGame, loading };
-  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading]);
+    stateRef.current = { games, selectedGameIndex, settingsOpen, launchingGame, loading, youtubeActive };
+  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, youtubeActive]);
+
+  const handleOpenYouTube = async () => {
+    try {
+      setYoutubeActive(true);
+      await invoke("open_youtube_webview");
+    } catch (err) {
+      console.error(err);
+      alert(`Falha ao abrir YouTube: ${err}`);
+      setYoutubeActive(false);
+    }
+  };
+
+  const handleCloseYouTube = async () => {
+    try {
+      await invoke("close_youtube_webview");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setYoutubeActive(false);
+    }
+  };
+
 
   // Load installed Steam games
   const loadGames = async () => {
@@ -165,6 +190,11 @@ function App() {
 
   // Launch selected game (Steam or Custom)
   const handleLaunchGame = async (game: SteamGame) => {
+    // 1. Fechar o YouTube se estiver aberto para liberar ~180MB de RAM imediatamente
+    if (youtubeActive) {
+      await handleCloseYouTube();
+    }
+
     setLaunchingGame(game);
     try {
       if (game.isCustom) {
@@ -172,16 +202,24 @@ function App() {
           await new Promise((resolve) => setTimeout(resolve, 2500));
         } else {
           await invoke("launch_custom_game", { exePath: game.exe_path });
-          await new Promise((resolve) => setTimeout(resolve, 2000));
         }
       } else {
         if (isSimulated) {
           await new Promise((resolve) => setTimeout(resolve, 2500));
         } else {
           await invoke("launch_game", { appid: game.appid });
-          await new Promise((resolve) => setTimeout(resolve, 2000));
         }
       }
+
+      // 2. Minimizar a janela principal do Tauri para liberar processos de renderização GPU e Working Set de RAM
+      try {
+        await getCurrentWindow().minimize();
+      } catch (winErr) {
+        console.error("Falha ao minimizar janela do launcher:", winErr);
+      }
+
+      // Pequeno cooldown de transição pós-lançamento
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     } catch (err) {
       console.error(err);
       alert(`Falha ao iniciar o jogo: ${err}`);
@@ -281,7 +319,17 @@ function App() {
   // Keyboard navigation for carousel
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (settingsOpen || launchingGame || loading || games.length === 0) return;
+      if (settingsOpen || launchingGame || loading) return;
+
+      if (youtubeActive) {
+        if (e.key === "Escape" || e.key === "Backspace") {
+          e.preventDefault();
+          handleCloseYouTube();
+        }
+        return;
+      }
+
+      if (games.length === 0) return;
 
       if (e.key === "ArrowLeft") {
         e.preventDefault();
@@ -295,12 +343,15 @@ function App() {
       } else if (e.key === "s" || e.key === "S") {
         e.preventDefault();
         setSettingsOpen(true);
+      } else if (e.key === "y" || e.key === "Y") {
+        e.preventDefault();
+        handleOpenYouTube();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, isSimulated]);
+  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, isSimulated, youtubeActive]);
 
   // Keyboard navigation for settings
   useEffect(() => {
@@ -374,25 +425,81 @@ function App() {
       if (gp) {
         const now = Date.now();
         if (now - lastInputTime.current > cooldown) {
-          const { games: currentGames, selectedGameIndex: currentIndex, settingsOpen: isSettingsOpen, launchingGame: isLaunching, loading: isLoading } = stateRef.current;
+          const { games: currentGames, selectedGameIndex: currentIndex, settingsOpen: isSettingsOpen, launchingGame: isLaunching, loading: isLoading, youtubeActive: isYoutubeActive } = stateRef.current;
 
-          if (!isLoading && !isLaunching && currentGames.length > 0) {
+          if (!isLoading && !isLaunching) {
             let inputTriggered = false;
 
             // Standard layout mappings
             const btnA = gp.buttons[0]?.pressed; // Confirm / Play
             const btnB = gp.buttons[1]?.pressed; // Back / Close Settings
+            const btnY = gp.buttons[3]?.pressed; // Open YouTube
             const btnStart = gp.buttons[9]?.pressed || gp.buttons[8]?.pressed; // Settings Toggle
             const dpadLeft = gp.buttons[14]?.pressed;
             const dpadRight = gp.buttons[15]?.pressed;
             const stickX = gp.axes[0]; // Left stick horizontal axis
 
-            if (isSettingsOpen) {
+            if (isYoutubeActive) {
+              // ── Full YouTube gamepad control ──
+              const dpadUp = gp.buttons[12]?.pressed;
+              const dpadDown = gp.buttons[13]?.pressed;
+              const dpadLeft = gp.buttons[14]?.pressed;
+              const dpadRight = gp.buttons[15]?.pressed;
+              const btnA = gp.buttons[0]?.pressed;
+              const btnB = gp.buttons[1]?.pressed;
+              const btnX = gp.buttons[2]?.pressed;
+              const btnY = gp.buttons[3]?.pressed;
+              const btnLB = gp.buttons[4]?.pressed;
+              const btnRB = gp.buttons[5]?.pressed;
+              const triggerLT = gp.buttons[6]?.value ?? 0;
+              const triggerRT = gp.buttons[7]?.value ?? 0;
+              const btnStart = gp.buttons[9]?.pressed;
+              const stickY = gp.axes[1]; // Left stick vertical
+
+              const sendAction = (action: string) => {
+                invoke("youtube_gamepad_action", { action }).catch(console.error);
+                inputTriggered = true;
+              };
+
+              if (btnStart) {
+                // Start = close YouTube, back to launcher
+                handleCloseYouTube();
+                inputTriggered = true;
+              } else if (dpadUp) {
+                sendAction("navigate_up");
+              } else if (dpadDown) {
+                sendAction("navigate_down");
+              } else if (dpadLeft) {
+                sendAction("navigate_left");
+              } else if (dpadRight) {
+                sendAction("navigate_right");
+              } else if (btnA) {
+                sendAction("click");
+              } else if (btnB) {
+                sendAction("back");
+              } else if (btnX) {
+                sendAction("fullscreen");
+              } else if (btnY) {
+                sendAction("play_pause");
+              } else if (btnLB) {
+                sendAction("seek_back");
+              } else if (btnRB) {
+                sendAction("seek_forward");
+              } else if (triggerLT > 0.5) {
+                sendAction("volume_down");
+              } else if (triggerRT > 0.5) {
+                sendAction("volume_up");
+              } else if (stickY < -0.6) {
+                sendAction("scroll_up");
+              } else if (stickY > 0.6) {
+                sendAction("scroll_down");
+              }
+            } else if (isSettingsOpen) {
               if (btnB) {
                 setSettingsOpen(false);
                 inputTriggered = true;
               }
-            } else {
+            } else if (currentGames.length > 0) {
               if (dpadLeft || stickX < -0.5) {
                 setSelectedGameIndex((prev) => (prev > 0 ? prev - 1 : currentGames.length - 1));
                 inputTriggered = true;
@@ -406,6 +513,9 @@ function App() {
                 }
               } else if (btnStart) {
                 setSettingsOpen(true);
+                inputTriggered = true;
+              } else if (btnY) {
+                handleOpenYouTube();
                 inputTriggered = true;
               }
             }
@@ -466,6 +576,47 @@ function App() {
 
   return (
     <div className="app-root">
+      {youtubeActive && (
+        <div className="youtube-header-bar">
+          <div className="youtube-header-title">
+            <span className="youtube-logo-red">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+              </svg>
+            </span>
+            <span className="youtube-header-text">YouTube</span>
+          </div>
+
+          {gamepadConnected && (
+            <div className="youtube-gamepad-hints">
+              <span className="yt-hint"><span className="yt-hint-key">D-Pad</span> Navegar</span>
+              <span className="yt-hint"><span className="yt-hint-key">A</span> Selecionar</span>
+              <span className="yt-hint"><span className="yt-hint-key">B</span> Voltar</span>
+              <span className="yt-hint"><span className="yt-hint-key">Y</span> Play/Pause</span>
+              <span className="yt-hint"><span className="yt-hint-key">X</span> Fullscreen</span>
+              <span className="yt-hint"><span className="yt-hint-key">LB/RB</span> Seek</span>
+              <span className="yt-hint"><span className="yt-hint-key">LT/RT</span> Volume</span>
+            </div>
+          )}
+
+          <button className="youtube-back-btn" onClick={handleCloseYouTube}>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+            {gamepadConnected ? "Start" : "ESC"} — Voltar
+          </button>
+        </div>
+      )}
       {/* Blurred ambient theme bg */}
       <div
         className="ambient-bg"
@@ -604,24 +755,38 @@ function App() {
               {gamepadConnected && <span className="key-badge" style={{ color: "var(--accent-cyan)" }}>Start</span>}
               <span>Configurações</span>
             </div>
+            <div className="hint-item">
+              <span className="key-badge">Y</span>
+              {gamepadConnected && <span className="key-badge" style={{ color: "var(--accent-cyan)" }}>Botão Y</span>}
+              <span>YouTube</span>
+            </div>
           </div>
 
-          <button className="settings-trigger-btn" onClick={() => setSettingsOpen(true)}>
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-            Configurações
-          </button>
+          <div className="footer-actions">
+            <button className="youtube-trigger-btn" onClick={handleOpenYouTube}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: "0.25rem" }}>
+                <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+              </svg>
+              YouTube
+            </button>
+
+            <button className="settings-trigger-btn" onClick={() => setSettingsOpen(true)}>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+              Configurações
+            </button>
+          </div>
         </footer>
       </div>
 
