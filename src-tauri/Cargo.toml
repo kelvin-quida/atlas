@@ -18,8 +18,41 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["unstable"] }
+tauri = { version = "2", features = ["protocol-asset", "unstable"] }
 tauri-plugin-opener = "2"
+
+# Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+
+# Async runtime
+tokio = { version = "1", features = ["sync", "fs"] }
+
+# Database — SeaORM with SQLite backend
+sea-orm = { version = "1", features = [
+    "sqlx-sqlite",
+    "runtime-tokio-native-tls",
+    "macros",
+] }
+
+# Migrations
+sea-orm-migration = { version = "1", features = [
+    "sqlx-sqlite",
+    "runtime-tokio-native-tls",
+] }
+
+# UUID for primary keys
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Timestamps
+chrono = { version = "0.4", features = ["serde"] }
+
+# Async trait support (for MetadataProvider)
+async-trait = "0.1"
+
+
+
 

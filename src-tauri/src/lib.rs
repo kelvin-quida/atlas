@@ -1,8 +1,96 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::time::{Instant, Duration};
 use tauri::Manager;
+use tokio::sync::Mutex;
+use sea_orm::DatabaseConnection;
+use sea_orm_migration::MigratorTrait;
 
+// ── Sub-modules ──────────────────────────────────────────────────────────────
+pub mod database;
+pub mod models;
+pub mod providers;
+pub mod services;
+pub mod commands;
+
+// ── IGDB / Twitch credentials ─────────────────────────────────────────────────
+const CLIENT_ID: &str = "tdcgkpt4ojpb1bdvmgxo0gufofipj3";
+const CLIENT_SECRET: &str = "yn53jn1amldun5lfeagwjrvmvlp3br";
+
+// ── Cached Twitch OAuth token ─────────────────────────────────────────────────
+pub struct TwitchToken {
+    pub access_token: String,
+    pub expires_at: Instant,
+}
+
+// ── Global app state (shared across all Tauri commands via .manage()) ─────────
+pub struct AppState {
+    pub db: DatabaseConnection,
+    pub igdb_token: Mutex<Option<TwitchToken>>,
+    pub app_data_dir: PathBuf,
+}
+
+impl AppState {
+    /// Returns a valid Twitch OAuth token, refreshing it if expired.
+    pub async fn get_igdb_token(&self) -> Result<String, String> {
+        let mut token_guard = self.igdb_token.lock().await;
+
+        if let Some(ref token) = *token_guard {
+            if Instant::now() < token.expires_at {
+                return Ok(token.access_token.clone());
+            }
+        }
+
+        // Fetch new token from Twitch
+        let client = reqwest::Client::new();
+        let response = client
+            .post("https://id.twitch.tv/oauth2/token")
+            .query(&[
+                ("client_id", CLIENT_ID),
+                ("client_secret", CLIENT_SECRET),
+                ("grant_type", "client_credentials"),
+            ])
+            .send()
+            .await
+            .map_err(|e| format!("Twitch auth request failed: {}", e))?;
+
+        #[derive(serde::Deserialize)]
+        struct TokenResponse {
+            access_token: String,
+            expires_in: u64,
+        }
+
+        let res = response
+            .json::<TokenResponse>()
+            .await
+            .map_err(|e| format!("Failed to parse Twitch token response: {}", e))?;
+
+        let expires_at =
+            Instant::now() + Duration::from_secs(res.expires_in.saturating_sub(60));
+
+        let access_token = res.access_token.clone();
+        *token_guard = Some(TwitchToken {
+            access_token: res.access_token,
+            expires_at,
+        });
+
+        Ok(access_token)
+    }
+}
+
+// ── IGDB response types ───────────────────────────────────────────────────────
+#[derive(serde::Deserialize)]
+struct IgdbCover {
+    url: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct IgdbGame {
+    name: String,
+    cover: Option<IgdbCover>,
+}
+
+// ── Legacy SteamGame type (kept for backward compat with get_installed_games) ─
 #[derive(serde::Serialize, Clone)]
 struct SteamGame {
     appid: String,
@@ -12,10 +100,13 @@ struct SteamGame {
     image_url: String,
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Steam scanning helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
 fn get_steam_install_path() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
-        // Query registry: HKCU\Software\Valve\Steam -> SteamPath
         if let Ok(output) = std::process::Command::new("reg")
             .args(["query", "HKCU\\Software\\Valve\\Steam", "/v", "SteamPath"])
             .output()
@@ -37,8 +128,7 @@ fn get_steam_install_path() -> Option<PathBuf> {
                 }
             }
         }
-        
-        // Fallback to registry HKLM (64-bit or 32-bit redirect)
+
         if let Ok(output) = std::process::Command::new("reg")
             .args(["query", "HKLM\\Software\\Wow6432Node\\Valve\\Steam", "/v", "InstallPath"])
             .output()
@@ -61,7 +151,6 @@ fn get_steam_install_path() -> Option<PathBuf> {
             }
         }
 
-        // Try standard paths
         let default_path = PathBuf::from("C:\\Program Files (x86)\\Steam");
         if default_path.exists() {
             return Some(default_path);
@@ -89,14 +178,13 @@ fn get_steam_install_path() -> Option<PathBuf> {
 }
 
 fn get_steam_libraries() -> Vec<PathBuf> {
-    let mut libraries = Vec::new();
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
 
-    // 1. Find Steam installation path
+    let mut libraries = Vec::new();
     let steam_path = get_steam_install_path();
     if let Some(ref path) = steam_path {
         libraries.push(path.clone());
-        
-        // Read libraryfolders.vdf
         let vdf_path = path.join("steamapps").join("libraryfolders.vdf");
         if vdf_path.exists() {
             if let Ok(file) = File::open(&vdf_path) {
@@ -118,34 +206,27 @@ fn get_steam_libraries() -> Vec<PathBuf> {
             }
         }
     }
-    
-    // Common fallbacks if no libraries found
+
     if libraries.is_empty() {
         #[cfg(target_os = "windows")]
         {
-            let common_paths = vec![
-                PathBuf::from("C:\\Program Files (x86)\\Steam"),
-                PathBuf::from("C:\\Program Files\\Steam"),
-                PathBuf::from("D:\\Steam"),
-                PathBuf::from("E:\\Steam"),
-            ];
-            for path in common_paths {
-                if path.exists() {
-                    libraries.push(path);
+            for p in ["C:\\Program Files (x86)\\Steam", "C:\\Program Files\\Steam", "D:\\Steam", "E:\\Steam"] {
+                let pb = PathBuf::from(p);
+                if pb.exists() {
+                    libraries.push(pb);
                 }
             }
         }
         #[cfg(target_os = "linux")]
         {
             if let Ok(home) = std::env::var("HOME") {
-                let common_paths = vec![
-                    PathBuf::from(format!("{}/.local/share/Steam", home)),
-                    PathBuf::from(format!("{}/.steam/steam", home)),
-                    PathBuf::from(format!("{}/.var/app/com.valvesoftware.Steam/.local/share/Steam", home)),
-                ];
-                for path in common_paths {
-                    if path.exists() {
-                        libraries.push(path);
+                for p in [
+                    format!("{}/.local/share/Steam", home),
+                    format!("{}/.steam/steam", home),
+                ] {
+                    let pb = PathBuf::from(p);
+                    if pb.exists() {
+                        libraries.push(pb);
                     }
                 }
             }
@@ -165,13 +246,15 @@ fn extract_acf_value(line: &str) -> Option<String> {
 }
 
 fn parse_acf_file(path: &Path, library_path: &Path) -> Option<SteamGame> {
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+
     let file = File::open(path).ok()?;
     let reader = BufReader::new(file);
-    
     let mut appid = String::new();
     let mut name = String::new();
     let mut installdir = String::new();
-    
+
     for line in reader.lines() {
         if let Ok(line) = line {
             let line = line.trim();
@@ -184,21 +267,19 @@ fn parse_acf_file(path: &Path, library_path: &Path) -> Option<SteamGame> {
             }
         }
     }
-    
+
     if appid.is_empty() || name.is_empty() {
         return None;
     }
-    
-    // Ignore Steamworks Common Redistributables or SteamVR etc.
     if appid == "228980" || name.contains("Steamworks Common Redistributables") {
         return None;
     }
-    
+
     let image_url = format!(
         "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{}/library_600x900.jpg",
         appid
     );
-    
+
     Some(SteamGame {
         appid,
         name,
@@ -208,32 +289,29 @@ fn parse_acf_file(path: &Path, library_path: &Path) -> Option<SteamGame> {
     })
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Tauri commands — legacy / platform
+// ─────────────────────────────────────────────────────────────────────────────
+
 #[tauri::command]
 fn get_installed_games() -> Vec<SteamGame> {
     let mut games = Vec::new();
-    let libraries = get_steam_libraries();
-    
-    for lib in libraries {
+    for lib in get_steam_libraries() {
         let steamapps_path = lib.join("steamapps");
         if !steamapps_path.exists() {
             continue;
         }
-        
         if let Ok(entries) = std::fs::read_dir(&steamapps_path) {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let file_name = entry.file_name().to_string_lossy().into_owned();
-                    if file_name.starts_with("appmanifest_") && file_name.ends_with(".acf") {
-                        if let Some(game) = parse_acf_file(&entry.path(), &lib) {
-                            games.push(game);
-                        }
+            for entry in entries.flatten() {
+                let file_name = entry.file_name().to_string_lossy().into_owned();
+                if file_name.starts_with("appmanifest_") && file_name.ends_with(".acf") {
+                    if let Some(game) = parse_acf_file(&entry.path(), &lib) {
+                        games.push(game);
                     }
                 }
             }
         }
     }
-    
-    // Sort games alphabetically by name
     games.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     games
 }
@@ -251,7 +329,6 @@ fn launch_game(appid: &str) -> Result<String, String> {
             Err(e) => Err(format!("Failed to execute command: {}", e)),
         }
     }
-    
     #[cfg(target_os = "linux")]
     {
         let status = std::process::Command::new("xdg-open")
@@ -263,7 +340,6 @@ fn launch_game(appid: &str) -> Result<String, String> {
             Err(e) => Err(format!("Failed to execute command: {}", e)),
         }
     }
-    
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
         Err("Unsupported platform".to_string())
@@ -277,26 +353,23 @@ fn is_shell_replacement_enabled() -> Result<bool, String> {
         let output = std::process::Command::new("reg")
             .args(["query", "HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon", "/v", "Shell"])
             .output();
-            
         match output {
             Ok(out) => {
                 if out.status.success() {
                     let stdout = String::from_utf8_lossy(&out.stdout);
                     if let Ok(exe_path) = std::env::current_exe() {
                         if let Some(exe_name) = exe_path.file_name() {
-                            let exe_name_str = exe_name.to_string_lossy();
-                            return Ok(stdout.contains(&*exe_name_str));
+                            return Ok(stdout.contains(&*exe_name.to_string_lossy()));
                         }
                     }
-                    Ok(stdout.contains("tauri-app")) // fallback string check
+                    Ok(stdout.contains("tauri-app"))
                 } else {
                     Ok(false)
                 }
             }
-            Err(e) => Err(e.to_string())
+            Err(e) => Err(e.to_string()),
         }
     }
-    
     #[cfg(not(target_os = "windows"))]
     {
         Ok(false)
@@ -311,22 +384,14 @@ fn toggle_shell_replacement(enable: bool) -> Result<String, String> {
             let current_exe = std::env::current_exe()
                 .map_err(|e| format!("Failed to get current executable path: {}", e))?;
             let path_str = current_exe.to_string_lossy().to_string();
-            
             let status = std::process::Command::new("reg")
                 .args([
                     "add",
                     "HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
-                    "/v",
-                    "Shell",
-                    "/t",
-                    "REG_SZ",
-                    "/d",
-                    &path_str,
-                    "/f"
+                    "/v", "Shell", "/t", "REG_SZ", "/d", &path_str, "/f",
                 ])
                 .status()
                 .map_err(|e| format!("Failed to run reg.exe: {}", e))?;
-                
             if status.success() {
                 Ok("Shell replacement enabled successfully".to_string())
             } else {
@@ -337,13 +402,10 @@ fn toggle_shell_replacement(enable: bool) -> Result<String, String> {
                 .args([
                     "delete",
                     "HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
-                    "/v",
-                    "Shell",
-                    "/f"
+                    "/v", "Shell", "/f",
                 ])
                 .status()
                 .map_err(|e| format!("Failed to run reg.exe: {}", e))?;
-                
             if status.success() {
                 Ok("Shell replacement disabled successfully (restored to explorer.exe)".to_string())
             } else {
@@ -351,7 +413,6 @@ fn toggle_shell_replacement(enable: bool) -> Result<String, String> {
             }
         }
     }
-    
     #[cfg(not(target_os = "windows"))]
     {
         Err("Registry shell replacement is only supported on Windows.".to_string())
@@ -373,12 +434,10 @@ fn pick_file(filter: &str, title: &str) -> Result<String, String> {
             "#,
             filter, title
         );
-        
         let output = std::process::Command::new("powershell")
             .args(["-NoProfile", "-Command", &script])
             .output()
             .map_err(|e| e.to_string())?;
-            
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if path.is_empty() {
@@ -390,45 +449,30 @@ fn pick_file(filter: &str, title: &str) -> Result<String, String> {
             Err(String::from_utf8_lossy(&output.stderr).to_string())
         }
     }
-    
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("zenity")
             .args(["--file-selection", &format!("--title={}", title)])
             .output();
-            
         match output {
-            Ok(out) => {
-                if out.status.success() {
-                    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                    if path.is_empty() {
-                        Err("Canceled".to_string())
-                    } else {
-                        Ok(path)
-                    }
-                } else {
-                    Err("Canceled or failed".to_string())
-                }
+            Ok(out) if out.status.success() => {
+                let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if path.is_empty() { Err("Canceled".to_string()) } else { Ok(path) }
             }
-            Err(_) => {
-                let output2 = std::process::Command::new("kdialog")
+            _ => {
+                let out2 = std::process::Command::new("kdialog")
                     .args(["--getopenfilename", ".", "*"])
                     .output();
-                match output2 {
-                    Ok(out2) if out2.status.success() => {
-                        let path = String::from_utf8_lossy(&out2.stdout).trim().to_string();
-                        if path.is_empty() {
-                            Err("Canceled".to_string())
-                        } else {
-                            Ok(path)
-                        }
+                match out2 {
+                    Ok(o) if o.status.success() => {
+                        let path = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                        if path.is_empty() { Err("Canceled".to_string()) } else { Ok(path) }
                     }
-                    _ => Err("Nenhum seletor de arquivos encontrado no Linux".to_string())
+                    _ => Err("Nenhum seletor de arquivos encontrado no Linux".to_string()),
                 }
             }
         }
     }
-    
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
         Err("Plataforma não suportada para seleção de arquivos".to_string())
@@ -441,45 +485,36 @@ fn launch_custom_game(exe_path: &str) -> Result<String, String> {
     if !path.exists() {
         return Err("O arquivo executável não existe no caminho especificado.".to_string());
     }
-    
-    let parent_dir = path.parent()
+    let parent_dir = path
+        .parent()
         .ok_or_else(|| "Não foi possível obter o diretório do executável.".to_string())?;
-        
+
     #[cfg(target_os = "windows")]
     {
-        // Use PowerShell's Start-Process because it uses ShellExecute under the hood.
-        // This resolves "The requested operation requires elevation (os error 740)" by showing the UAC prompt if needed!
         let status = std::process::Command::new("powershell")
             .args([
                 "-NoProfile",
                 "-Command",
                 &format!(
                     "Start-Process -FilePath '{}' -WorkingDirectory '{}'",
-                    path.to_string_lossy().replace("'", "''"),
-                    parent_dir.to_string_lossy().replace("'", "''")
-                )
+                    path.to_string_lossy().replace('\'', "''"),
+                    parent_dir.to_string_lossy().replace('\'', "''")
+                ),
             ])
             .status();
-            
         match status {
             Ok(s) if s.success() => Ok("Jogo customizado iniciado com sucesso".to_string()),
             Ok(s) => Err(format!("O PowerShell retornou código de erro: {}", s)),
             Err(e) => Err(format!("Falha ao executar o comando PowerShell: {}", e)),
         }
     }
-    
     #[cfg(target_os = "linux")]
     {
-        let status = std::process::Command::new(path)
-            .current_dir(parent_dir)
-            .spawn();
-            
-        match status {
+        match std::process::Command::new(path).current_dir(parent_dir).spawn() {
             Ok(_) => Ok("Jogo customizado iniciado com sucesso".to_string()),
             Err(e) => Err(format!("Falha ao executar o processo: {}", e)),
         }
     }
-    
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
         Err("Plataforma não suportada".to_string())
@@ -528,26 +563,22 @@ fn get_installed_apps() -> Result<Vec<InstalledApp>, String> {
         }
         ConvertTo-Json -InputObject $apps -Compress
         "#;
-
         let output = std::process::Command::new("powershell")
             .args(["-NoProfile", "-Command", script])
             .output()
             .map_err(|e| e.to_string())?;
-
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if stdout.is_empty() {
                 return Ok(Vec::new());
             }
-            let apps: Vec<InstalledApp> = serde_json::from_str(&stdout)
-                .unwrap_or_else(|_| {
-                    if let Ok(single) = serde_json::from_str::<InstalledApp>(&stdout) {
-                        vec![single]
-                    } else {
-                        Vec::new()
-                    }
-                });
-            
+            let apps: Vec<InstalledApp> = serde_json::from_str(&stdout).unwrap_or_else(|_| {
+                if let Ok(single) = serde_json::from_str::<InstalledApp>(&stdout) {
+                    vec![single]
+                } else {
+                    Vec::new()
+                }
+            });
             let mut unique_apps = std::collections::HashMap::new();
             for app in apps {
                 unique_apps.insert(app.path.clone(), app);
@@ -559,7 +590,6 @@ fn get_installed_apps() -> Result<Vec<InstalledApp>, String> {
             Err(String::from_utf8_lossy(&output.stderr).to_string())
         }
     }
-
     #[cfg(not(target_os = "windows"))]
     {
         Ok(vec![
@@ -597,40 +627,27 @@ fn list_dir_contents(path: &str, allowed_extensions: Vec<String>) -> Result<Vec<
     if !dir_path.exists() {
         return Err("Diretório não existe".to_string());
     }
-
     let mut items = Vec::new();
-    let entries = std::fs::read_dir(dir_path).map_err(|e| e.to_string())?;
-
-    for entry in entries {
-        if let Ok(entry) = entry {
-            let file_type = entry.file_type();
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let full_path = entry.path().to_string_lossy().into_owned();
-
-            if name.starts_with('.') || name.starts_with('$') {
-                continue;
-            }
-
-            if let Ok(ft) = file_type {
-                let is_dir = ft.is_dir();
-                if !is_dir && !allowed_extensions.is_empty() {
-                    let ext = entry.path().extension()
-                        .and_then(|e| e.to_str())
-                        .map(|s| s.to_lowercase())
-                        .unwrap_or_default();
-                    if !allowed_extensions.contains(&ext) {
-                        continue;
-                    }
+    for entry in std::fs::read_dir(dir_path).map_err(|e| e.to_string())?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let full_path = entry.path().to_string_lossy().into_owned();
+        if name.starts_with('.') || name.starts_with('$') {
+            continue;
+        }
+        if let Ok(ft) = entry.file_type() {
+            let is_dir = ft.is_dir();
+            if !is_dir && !allowed_extensions.is_empty() {
+                let ext = entry.path().extension()
+                    .and_then(|e| e.to_str())
+                    .map(|s| s.to_lowercase())
+                    .unwrap_or_default();
+                if !allowed_extensions.contains(&ext) {
+                    continue;
                 }
-                items.push(FileItem {
-                    name,
-                    path: full_path,
-                    is_dir,
-                });
             }
+            items.push(FileItem { name, path: full_path, is_dir });
         }
     }
-
     items.sort_by(|a, b| {
         if a.is_dir != b.is_dir {
             b.is_dir.cmp(&a.is_dir)
@@ -638,7 +655,6 @@ fn list_dir_contents(path: &str, allowed_extensions: Vec<String>) -> Result<Vec<
             a.name.to_lowercase().cmp(&b.name.to_lowercase())
         }
     });
-
     Ok(items)
 }
 
@@ -647,65 +663,86 @@ fn get_parent_path(path: &str) -> Result<String, String> {
     let p = Path::new(path);
     match p.parent() {
         Some(parent) => {
-            let parent_str = parent.to_string_lossy().into_owned();
-            if parent_str.is_empty() || parent_str == path {
-                Ok("".to_string())
-            } else {
-                Ok(parent_str)
-            }
+            let s = parent.to_string_lossy().into_owned();
+            if s.is_empty() || s == path { Ok("".to_string()) } else { Ok(s) }
         }
         None => Ok("".to_string()),
     }
 }
 
+/// Searches IGDB for a game cover and returns the high-quality URL.
+/// Downloads the image to disk and returns the local asset path if successful.
+#[tauri::command]
+async fn get_game_image_url(
+    game_name: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let token = state.get_igdb_token().await?;
+    let client = reqwest::Client::new();
+    let escaped_name = game_name.replace('"', "\\\"");
+    let body = format!("search \"{}\"; fields name, cover.url; limit 1;", escaped_name);
 
-/// JavaScript initialization script injected into the YouTube TV webview.
-/// YouTube TV (Leanback) already has built-in spatial navigation for D-pad/remote.
-/// This script simply provides a bridge to simulate keyboard events from gamepad actions.
+    let response = client
+        .post("https://api.igdb.com/v4/games")
+        .header("Client-ID", CLIENT_ID)
+        .header("Authorization", format!("Bearer {}", token))
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| format!("IGDB request failed: {}", e))?;
+
+    let games = response
+        .json::<Vec<IgdbGame>>()
+        .await
+        .map_err(|e| format!("Failed to parse IGDB response: {}", e))?;
+
+    if let Some(game) = games.first() {
+        if let Some(ref cover) = game.cover {
+            if let Some(ref url) = cover.url {
+                let mut full_url = url.clone();
+                if full_url.starts_with("//") {
+                    full_url = format!("https:{}", full_url);
+                }
+                // Use high-quality 720p instead of thumb
+                full_url = full_url.replace("t_thumb", "t_720p");
+                return Ok(full_url);
+            }
+        }
+    }
+
+    Err("Nenhuma imagem de capa encontrada para este jogo".to_string())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// YouTube TV webview
+// ─────────────────────────────────────────────────────────────────────────────
+
 const YOUTUBE_TV_INIT_SCRIPT: &str = r#"
 (function() {
     if (window.__ATLAS_TV_INJECTED) return;
     window.__ATLAS_TV_INJECTED = true;
 
-    // ── Simulate a keyboard event on the focused element or document ──
     function simulateKey(key, code, keyCode) {
         const target = document.activeElement || document.body;
         const opts = {
-            key: key,
-            code: code,
-            keyCode: keyCode,
-            which: keyCode,
-            bubbles: true,
-            cancelable: true
+            key: key, code: code, keyCode: keyCode, which: keyCode,
+            bubbles: true, cancelable: true
         };
         target.dispatchEvent(new KeyboardEvent('keydown', opts));
         target.dispatchEvent(new KeyboardEvent('keyup', opts));
     }
 
-    // ── Public API for Tauri eval() ──
     window.__ATLAS_TV = function(action) {
         switch(action) {
-            // Navigation — YouTube TV uses arrow keys natively
             case 'navigate_up':    simulateKey('ArrowUp',    'ArrowUp',    38); break;
             case 'navigate_down':  simulateKey('ArrowDown',  'ArrowDown',  40); break;
             case 'navigate_left':  simulateKey('ArrowLeft',  'ArrowLeft',  37); break;
             case 'navigate_right': simulateKey('ArrowRight', 'ArrowRight', 39); break;
-
-            // Select — Enter key
             case 'click':          simulateKey('Enter', 'Enter', 13); break;
-
-            // Back — Escape/Backspace (YouTube TV uses both)
             case 'back':           simulateKey('Escape', 'Escape', 27); break;
-
-            // Play/Pause — Space bar or 'k' (YouTube shortcut)
             case 'play_pause':     simulateKey(' ', 'Space', 32); break;
-
-            // Seek — Left/Right arrows also seek when player is focused
-            // but we use dedicated shortcuts for reliability
-            case 'seek_back':      simulateKey('j', 'KeyJ', 74); break;  // -10s
-            case 'seek_forward':   simulateKey('l', 'KeyL', 76); break;  // +10s
-
-            // Volume — up/down arrows in player context, or direct manipulation
+            case 'seek_back':      simulateKey('j', 'KeyJ', 74); break;
+            case 'seek_forward':   simulateKey('l', 'KeyL', 76); break;
             case 'volume_up': {
                 const v = document.querySelector('video');
                 if (v) v.volume = Math.min(1, v.volume + 0.1);
@@ -716,9 +753,7 @@ const YOUTUBE_TV_INIT_SCRIPT: &str = r#"
                 if (v) v.volume = Math.max(0, v.volume - 0.1);
                 break;
             }
-
-            // Fullscreen — 'f' is YouTube's fullscreen toggle
-            case 'fullscreen':     simulateKey('f', 'KeyF', 70); break;
+            case 'fullscreen': simulateKey('f', 'KeyF', 70); break;
         }
     };
 
@@ -728,36 +763,32 @@ const YOUTUBE_TV_INIT_SCRIPT: &str = r#"
 
 #[tauri::command]
 async fn open_youtube_webview(app: tauri::AppHandle) -> Result<(), String> {
-    let main_window = app.get_window("main")
+    let main_window = app
+        .get_window("main")
         .ok_or_else(|| "Janela principal não encontrada".to_string())?;
 
-    // Se o webview já existe, não faz nada
     if app.get_webview("youtube").is_some() {
         return Ok(());
     }
 
     let scale_factor = main_window.scale_factor().map_err(|e| e.to_string())?;
     let size = main_window.inner_size().map_err(|e| e.to_string())?;
-
-    let header_height_logical = 60.0;
-    let header_height_physical = (header_height_logical * scale_factor) as u32;
-
-    let webview_pos = tauri::PhysicalPosition::new(0, header_height_physical as i32);
-    let webview_size = tauri::PhysicalSize::new(size.width, size.height.saturating_sub(header_height_physical));
-
-    // YouTube TV (Leanback) — interface nativa para controles/TV
-    let youtube_url = tauri::Url::parse("https://www.youtube.com/tv").unwrap();
+    let header_height_physical = (60.0 * scale_factor) as u32;
 
     let webview_builder = tauri::WebviewBuilder::new(
         "youtube",
-        tauri::WebviewUrl::External(youtube_url)
+        tauri::WebviewUrl::External(tauri::Url::parse("https://www.youtube.com/tv").unwrap()),
     )
-    // User-agent de Smart TV para que o YouTube sirva a interface Leanback completa
     .user_agent("Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Version/5.0 TV Safari/537.36")
     .initialization_script(YOUTUBE_TV_INIT_SCRIPT)
     .auto_resize();
 
-    main_window.add_child(webview_builder, webview_pos, webview_size)
+    main_window
+        .add_child(
+            webview_builder,
+            tauri::PhysicalPosition::new(0, header_height_physical as i32),
+            tauri::PhysicalSize::new(size.width, size.height.saturating_sub(header_height_physical)),
+        )
         .map_err(|e| e.to_string())?;
 
     Ok(())
@@ -783,10 +814,50 @@ async fn close_youtube_webview(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Tauri entry point
+// ─────────────────────────────────────────────────────────────────────────────
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            // Resolve the platform-specific AppData directory
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .expect("Failed to resolve app_data_dir");
+
+            // Spawn async setup (database + directory creation)
+            let handle = app.handle().clone();
+            let data_dir = app_data_dir.clone();
+
+            tauri::async_runtime::block_on(async move {
+                // 1. Ensure all required directories exist
+                crate::services::cache_service::ensure_directories(&data_dir).await;
+
+                // 2. Connect to SQLite
+                let db_path = data_dir.join("atlas.db");
+                let db = crate::database::connection::setup_database(&db_path)
+                    .await
+                    .expect("Failed to connect to database");
+
+                // 3. Run all pending migrations
+                crate::database::migrations::Migrator::up(&db, None)
+                    .await
+                    .expect("Failed to run database migrations");
+
+                // 4. Register global state
+                handle.manage(AppState {
+                    db,
+                    igdb_token: Mutex::new(None),
+                    app_data_dir: data_dir,
+                });
+            });
+
+            Ok(())
+        })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Resized(size) = event {
                 if window.label() == "main" {
@@ -795,12 +866,11 @@ pub fn run() {
                             let header_height_physical = (60.0 * scale_factor) as u32;
                             if size.height > header_height_physical {
                                 let _ = youtube.set_position(tauri::PhysicalPosition::new(
-                                    0,
-                                    header_height_physical as i32
+                                    0, header_height_physical as i32,
                                 ));
                                 let _ = youtube.set_size(tauri::PhysicalSize::new(
                                     size.width,
-                                    size.height - header_height_physical
+                                    size.height - header_height_physical,
                                 ));
                             }
                         }
@@ -809,19 +879,34 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            // ── Platform / Steam commands ─────────────────────────────
             get_installed_games,
             launch_game,
             is_shell_replacement_enabled,
             toggle_shell_replacement,
             pick_file,
             launch_custom_game,
-            open_youtube_webview,
-            close_youtube_webview,
-            youtube_gamepad_action,
+            // ── File browser commands ─────────────────────────────────
             get_installed_apps,
             get_drives,
             list_dir_contents,
-            get_parent_path
+            get_parent_path,
+            // ── IGDB metadata ─────────────────────────────────────────
+            get_game_image_url,
+            // ── Database game commands (Phase 2) ──────────────────────
+            commands::game_commands::db_list_games,
+            commands::game_commands::db_add_game,
+            commands::game_commands::db_delete_game,
+            commands::game_commands::db_update_game,
+            commands::game_commands::db_migrate_from_localstorage,
+            // ── Playtime tracking commands (Phase 5) ─────────────────────────────────
+            commands::playtime_commands::start_play_session,
+            commands::playtime_commands::end_play_session,
+            commands::playtime_commands::get_game_playtime,
+            // ── YouTube TV ────────────────────────────────────────────
+            open_youtube_webview,
+            close_youtube_webview,
+            youtube_gamepad_action,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

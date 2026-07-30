@@ -4,60 +4,44 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./App.css";
 
 interface SteamGame {
-  appid: string;
+  appid: string;       // maps to GameDto.id (UUID) or steam_app_id
   name: string;
   installdir: string;
   library_path: string;
-  image_url: string;
+  image_url: string;   // maps to GameDto.cover_url
   isCustom?: boolean;
   exe_path?: string;
 }
 
+// Shape of the DB DTO returned from Rust
+interface GameDto {
+  id: string;
+  name: string;
+  platform: string;
+  exe_path?: string;
+  install_dir?: string;
+  steam_app_id?: string;
+  igdb_id?: number;
+  cover_url?: string;
+  last_played?: string;
+  added_at: string;
+}
+
+// Map a DB GameDto to the legacy SteamGame shape used throughout the UI
+function gameDtoToSteamGame(dto: GameDto): SteamGame {
+  return {
+    appid: dto.id,
+    name: dto.name,
+    installdir: dto.install_dir ?? "",
+    library_path: "",
+    image_url: dto.cover_url ?? "",
+    isCustom: dto.platform === "manual",
+    exe_path: dto.exe_path,
+  };
+}
+
 // Gorgeous mock games to display in dev environment or if Steam isn't installed
-const MOCK_GAMES: SteamGame[] = [
-  {
-    appid: "1086940",
-    name: "Baldur's Gate 3",
-    installdir: "Baldurs Gate 3",
-    library_path: "C:\\Program Files (x86)\\Steam",
-    image_url: "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1086940/library_600x900.jpg"
-  },
-  {
-    appid: "1091500",
-    name: "Cyberpunk 2077",
-    installdir: "Cyberpunk 2077",
-    library_path: "C:\\Program Files (x86)\\Steam",
-    image_url: "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1091500/library_600x900.jpg"
-  },
-  {
-    appid: "1245620",
-    name: "Elden Ring",
-    installdir: "ELDEN RING",
-    library_path: "C:\\Program Files (x86)\\Steam",
-    image_url: "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1245620/library_600x900.jpg"
-  },
-  {
-    appid: "1145360",
-    name: "Hades",
-    installdir: "Hades",
-    library_path: "C:\\Program Files (x86)\\Steam",
-    image_url: "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1145360/library_600x900.jpg"
-  },
-  {
-    appid: "774361",
-    name: "Hollow Knight",
-    installdir: "Hollow Knight",
-    library_path: "C:\\Program Files (x86)\\Steam",
-    image_url: "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/774361/library_600x900.jpg"
-  },
-  {
-    appid: "620",
-    name: "Portal 2",
-    installdir: "Portal 2",
-    library_path: "C:\\Program Files (x86)\\Steam",
-    image_url: "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/620/library_600x900.jpg"
-  }
-];
+
 
 function App() {
   const [steamGames, setSteamGames] = useState<SteamGame[]>([]);
@@ -65,7 +49,12 @@ function App() {
   const [games, setGames] = useState<SteamGame[]>([]);
   const [selectedGameIndex, setSelectedGameIndex] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [searchingIgdb, setSearchingIgdb] = useState(false);
+  const [editingSearchingIgdb, setEditingSearchingIgdb] = useState(false);
+
   const [isSimulated, setIsSimulated] = useState(false);
+  const [ambientBgUrl, setAmbientBgUrl] = useState("");
+
   const [launchingGame, setLaunchingGame] = useState<SteamGame | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"geral" | "custom" | "aparencia">("geral");
@@ -77,6 +66,11 @@ function App() {
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
   const [gamepadConnected, setGamepadConnected] = useState(false);
   const [youtubeActive, setYoutubeActive] = useState(false);
+
+  // Playtime Tracking States (Phase 5)
+  const [playtimes, setPlaytimes] = useState<Record<string, { total_seconds: number; formatted: string }>>({});
+  const activeSessionIdRef = useRef<number | null>(null);
+
 
   // States for settings navigation
   const [settingsFocusArea, setSettingsFocusArea] = useState<"tabs" | "content" | "footer">("tabs");
@@ -181,6 +175,8 @@ function App() {
   const carouselRef = useRef<HTMLDivElement>(null);
   const lastInputTime = useRef<number>(0);
   const cooldown = 200; // ms
+  const igdbAttemptsRef = useRef<Record<string, boolean>>({});
+
 
   // Ref to hold current state values for the gamepad loop
   const stateRef = useRef({
@@ -212,12 +208,12 @@ function App() {
 
   // Sync state values with ref
   useEffect(() => {
-    stateRef.current = { 
-      games, 
-      selectedGameIndex, 
-      settingsOpen, 
-      launchingGame, 
-      loading, 
+    stateRef.current = {
+      games,
+      selectedGameIndex,
+      settingsOpen,
+      launchingGame,
+      loading,
       youtubeActive,
       optionsMenuGame,
       optionsMenuSelectedIndex,
@@ -262,38 +258,95 @@ function App() {
   };
 
 
-  // Load installed Steam games
+  // Load all games from SQLite — runs on mount and handles first-run localStorage migration
   const loadGames = async () => {
     setLoading(true);
     try {
-      const list = await invoke<SteamGame[]>("get_installed_games");
-      if (list && list.length > 0) {
-        setSteamGames(list);
-        setIsSimulated(false);
-      } else {
-        setSteamGames(MOCK_GAMES);
-        setIsSimulated(true);
+      // ── First-run migration: move localStorage games into SQLite ──
+      const legacyRaw = localStorage.getItem("atlas_custom_games");
+      const migrated = localStorage.getItem("atlas_db_migrated");
+      if (legacyRaw && !migrated) {
+        try {
+          const legacyGames = JSON.parse(legacyRaw);
+          if (Array.isArray(legacyGames) && legacyGames.length > 0) {
+            console.log(`[Atlas] Migrating ${legacyGames.length} games from localStorage to SQLite...`);
+            await invoke("db_migrate_from_localstorage", { legacyGames });
+            localStorage.setItem("atlas_db_migrated", "1");
+            localStorage.removeItem("atlas_custom_games");
+            console.log("[Atlas] Migration complete.");
+          }
+        } catch (e) {
+          console.error("[Atlas] Migration failed, will retry next launch:", e);
+        }
       }
+
+      // ── Load all games from the database ──
+      const dtos = await invoke<GameDto[]>("db_list_games");
+      const allGames = dtos.map(gameDtoToSteamGame);
+      allGames.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+
+      // Split into steam / custom buckets for compatibility with rest of UI
+      setSteamGames(allGames.filter((g) => !g.isCustom));
+      setCustomGames(allGames.filter((g) => g.isCustom));
+      setIsSimulated(false);
     } catch (err) {
-      console.warn("Failed to contact Tauri backend, falling back to mock library.", err);
-      setSteamGames(MOCK_GAMES);
-      setIsSimulated(true);
+      console.warn("[Atlas] Failed to load games from database:", err);
     } finally {
       setLoading(false);
     }
   };
 
-  // Load custom games from localStorage on mount
+  // Load games from DB on mount
   useEffect(() => {
-    const saved = localStorage.getItem("atlas_custom_games");
-    if (saved) {
-      try {
-        setCustomGames(JSON.parse(saved));
-      } catch (e) {
-        console.error("Failed to parse custom games:", e);
-      }
-    }
+    loadGames();
   }, []);
+
+  const loadPlaytime = async (gameId: string) => {
+    try {
+      const stats = await invoke<{ game_id: string; total_seconds: number; formatted: string }>("get_game_playtime", { gameId });
+      setPlaytimes((prev) => ({
+        ...prev,
+        [gameId]: { total_seconds: stats.total_seconds, formatted: stats.formatted },
+      }));
+    } catch (err) {
+      console.warn(`[Playtime] Failed to load playtime for ${gameId}:`, err);
+    }
+  };
+
+  // Load playtime for active game when selection changes
+  useEffect(() => {
+    const game = games[selectedGameIndex];
+    if (game) {
+      loadPlaytime(game.appid);
+    }
+  }, [selectedGameIndex, games]);
+
+  // Listen to window focus/blur to end play sessions
+  useEffect(() => {
+    const handleFocus = async () => {
+      if (activeSessionIdRef.current !== null) {
+        const sid = activeSessionIdRef.current;
+        activeSessionIdRef.current = null;
+        try {
+          const res = await invoke<{ duration_seconds: number; formatted: string }>("end_play_session", { sessionId: sid });
+          console.log(`[Playtime] Ended session ${sid}. Played for ${res.formatted}`);
+
+          // Refresh playtime for current game
+          const game = games[selectedGameIndex];
+          if (game) {
+            loadPlaytime(game.appid);
+          }
+        } catch (e) {
+          console.error("Failed to end play session in DB:", e);
+        }
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [games, selectedGameIndex]);
 
   // Merge steamGames and customGames when either changes
   useEffect(() => {
@@ -307,6 +360,78 @@ function App() {
       setSelectedGameIndex(merged.length - 1);
     }
   }, [steamGames, customGames]);
+
+  // Auto-fetch IGDB images for games without cover urls
+  useEffect(() => {
+    games.forEach((game) => {
+      if (!game.image_url && !igdbAttemptsRef.current[game.appid]) {
+        igdbAttemptsRef.current[game.appid] = true;
+
+        invoke<string>("get_game_image_url", { gameName: game.name })
+          .then((newUrl) => {
+            // Remove error state if any was set
+            setImageErrors((prev) => {
+              const next = { ...prev };
+              delete next[game.appid];
+              return next;
+            });
+
+            if (game.isCustom) {
+              setCustomGames((prev) => {
+                const next = prev.map((g) => (g.appid === game.appid ? { ...g, image_url: newUrl } : g));
+                localStorage.setItem("atlas_custom_games", JSON.stringify(next));
+                return next;
+              });
+            } else {
+              setSteamGames((prev) =>
+                prev.map((g) => (g.appid === game.appid ? { ...g, image_url: newUrl } : g))
+              );
+            }
+          })
+          .catch((err) => {
+            console.warn(`Failed to auto-fetch IGDB cover for ${game.name}:`, err);
+          });
+      }
+    });
+  }, [games]);
+
+  // Smoothly preload ambient background images to avoid delays/flashes
+  useEffect(() => {
+    if (loading || games.length === 0) return;
+    const activeGame = games[selectedGameIndex];
+    if (!activeGame) {
+      setAmbientBgUrl("");
+      return;
+    }
+
+    let bgUrl = "";
+    if (activeGame.image_url) {
+      if (!activeGame.isCustom) {
+        // Use Steam's landscape header image: much smaller and loads instantly
+        bgUrl = `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${activeGame.appid}/header.jpg`;
+      } else if (activeGame.image_url.includes("images.igdb.com")) {
+        // Use IGDB's t_cover_big (which is 264x352, about 10-20KB instead of 720p 200KB)
+        bgUrl = activeGame.image_url.replace("t_720p", "t_cover_big");
+      } else {
+        // Fallback to custom game image URL (local file src or other remote source)
+        bgUrl = getGameImageUrl(activeGame);
+      }
+    }
+
+    if (!bgUrl) {
+      setAmbientBgUrl("");
+      return;
+    }
+
+    // Preload image in memory before transitioning
+    const img = new Image();
+    img.src = bgUrl;
+    img.onload = () => {
+      setAmbientBgUrl(bgUrl);
+    };
+  }, [selectedGameIndex, games, loading]);
+
+
 
   // Check if custom registry Windows shell replacement is currently enabled
   const checkShellStatus = async () => {
@@ -338,6 +463,17 @@ function App() {
 
     setLaunchingGame(game);
     try {
+      // Start session in DB before launching
+      if (!isSimulated) {
+        try {
+          const res = await invoke<{ session_id: number }>("start_play_session", { gameId: game.appid });
+          activeSessionIdRef.current = res.session_id;
+          console.log(`[Playtime] Started session ${res.session_id} for ${game.name}`);
+        } catch (e) {
+          console.error("Failed to start play session in DB:", e);
+        }
+      }
+
       if (game.isCustom) {
         if (isSimulated) {
           await new Promise((resolve) => setTimeout(resolve, 2500));
@@ -399,12 +535,12 @@ function App() {
 
   // Custom File Explorer and Add Custom Game Helpers
   const openFileExplorer = (
-    allowedExts: string[], 
+    allowedExts: string[],
     onSelect: (path: string) => void
   ) => {
     setFileExplorerFilter(allowedExts);
     setFileExplorerOnSelect(() => onSelect);
-    
+
     invoke<string[]>("get_drives")
       .then((drives) => {
         setFileExplorerPath("");
@@ -489,7 +625,7 @@ function App() {
     setSearchQuery("");
     setDetectedSelectedIndex(0);
     setAddGameSelectedIndex(0);
-    
+
     setLoadingApps(true);
     invoke<any[]>("get_installed_apps")
       .then((apps) => {
@@ -500,7 +636,7 @@ function App() {
         console.error("Erro ao obter apps instalados:", err);
         setLoadingApps(false);
       });
-      
+
     setAddGameModalOpen(true);
   };
 
@@ -540,41 +676,58 @@ function App() {
     });
   };
 
-  const handleAddCustomGameSubmit = (e?: React.FormEvent) => {
+  const handleAddCustomGameSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!customName || !customExe) {
       alert("Por favor, preencha pelo menos o Nome e o Executável.");
       return;
     }
 
-    const newGame: SteamGame = {
-      appid: `custom-${Date.now()}`,
-      name: customName,
-      installdir: "",
-      library_path: "",
-      image_url: customImg,
-      isCustom: true,
-      exe_path: customExe
-    };
+    setSearchingIgdb(true);
+    let resolvedImg = customImg;
+    if (!resolvedImg) {
+      try {
+        resolvedImg = await invoke<string>("get_game_image_url", { gameName: customName });
+      } catch (err) {
+        console.warn("Could not auto-fetch image during addition:", err);
+      }
+    }
 
-    const updated = [...customGames, newGame];
-    setCustomGames(updated);
-    localStorage.setItem("atlas_custom_games", JSON.stringify(updated));
+    try {
+      const dto = await invoke<GameDto>("db_add_game", {
+        name: customName,
+        exePath: customExe,
+        installDir: null,
+        steamAppId: null,
+        platform: "manual",
+        coverUrl: resolvedImg || null,
+      });
+      const newGame = gameDtoToSteamGame(dto);
+      setCustomGames((prev) => [...prev, newGame]);
+    } catch (err) {
+      console.error("Failed to add game to database:", err);
+      alert(`Erro ao salvar o jogo: ${err}`);
+    }
 
     // Reset form
     setCustomName("");
     setCustomExe("");
     setCustomImg("");
     setAddGameModalOpen(false);
+    setSearchingIgdb(false);
   };
 
-  const handleDeleteCustomGame = (appid: string) => {
-    const updated = customGames.filter((g) => g.appid !== appid);
-    setCustomGames(updated);
-    localStorage.setItem("atlas_custom_games", JSON.stringify(updated));
+  const handleDeleteCustomGame = async (appid: string) => {
+    try {
+      await invoke("db_delete_game", { gameId: appid });
+      setCustomGames((prev) => prev.filter((g) => g.appid !== appid));
+    } catch (err) {
+      console.error("Failed to delete game:", err);
+      alert(`Erro ao excluir o jogo: ${err}`);
+    }
   };
 
-  const handleEditCustomGameSubmit = (e: React.FormEvent) => {
+  const handleEditCustomGameSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingGame) return;
     if (!editName || !editExe) {
@@ -582,22 +735,68 @@ function App() {
       return;
     }
 
-    const updated = customGames.map((g) => {
-      if (g.appid === editingGame.appid) {
-        return {
-          ...g,
-          name: editName,
-          exe_path: editExe,
-          image_url: editImg
-        };
+    setEditingSearchingIgdb(true);
+    let resolvedImg = editImg || null;
+    if (!resolvedImg) {
+      try {
+        resolvedImg = await invoke<string>("get_game_image_url", { gameName: editName });
+      } catch (err) {
+        console.warn("Could not auto-fetch image during edit:", err);
       }
-      return g;
-    });
+    }
 
-    setCustomGames(updated);
-    localStorage.setItem("atlas_custom_games", JSON.stringify(updated));
+    try {
+      const dto = await invoke<GameDto>("db_update_game", {
+        gameId: editingGame.appid,
+        name: editName,
+        exePath: editExe,
+        coverUrl: resolvedImg,
+      });
+      const updated = gameDtoToSteamGame(dto);
+      setCustomGames((prev) =>
+        prev.map((g) => (g.appid === editingGame.appid ? updated : g))
+      );
+    } catch (err) {
+      console.error("Failed to update game:", err);
+      alert(`Erro ao atualizar o jogo: ${err}`);
+    }
+
     setEditingGame(null);
+    setEditingSearchingIgdb(false);
   };
+
+  const handleSearchIgdbForCustom = async () => {
+    if (!customName) {
+      alert("Por favor, digite o nome do jogo primeiro.");
+      return;
+    }
+    setSearchingIgdb(true);
+    try {
+      const url = await invoke<string>("get_game_image_url", { gameName: customName });
+      setCustomImg(url);
+    } catch (err) {
+      alert(`Não foi possível encontrar a imagem para "${customName}" no IGDB: ${err}`);
+    } finally {
+      setSearchingIgdb(false);
+    }
+  };
+
+  const handleSearchIgdbForEdit = async () => {
+    if (!editName) {
+      alert("Por favor, digite o nome do jogo primeiro.");
+      return;
+    }
+    setEditingSearchingIgdb(true);
+    try {
+      const url = await invoke<string>("get_game_image_url", { gameName: editName });
+      setEditImg(url);
+    } catch (err) {
+      alert(`Não foi possível encontrar a imagem para "${editName}" no IGDB: ${err}`);
+    } finally {
+      setEditingSearchingIgdb(false);
+    }
+  };
+
 
   // Refs for scrolling container
   const detectedListRef = useRef<HTMLDivElement | null>(null);
@@ -629,7 +828,7 @@ function App() {
   // Focus helper for AddGameModal
   useEffect(() => {
     if (!addGameModalOpen) return;
-    
+
     let elementToFocus: HTMLElement | null = null;
 
     if (addGameSelectedIndex === 0) {
@@ -660,7 +859,7 @@ function App() {
   // Focus helper for File Explorer
   useEffect(() => {
     if (!fileExplorerOpen) return;
-    
+
     const elementToFocus = document.getElementById(`file-explorer-item-${fileExplorerSelectedIndex}`);
     if (elementToFocus) {
       elementToFocus.focus();
@@ -787,7 +986,44 @@ function App() {
         return;
       }
 
-      if (games.length === 0) return;
+      if (games.length === 0) {
+        // When library is empty, only allow header navigation and hotkeys
+        if (e.key === "s" || e.key === "S") {
+          e.preventDefault();
+          setSettingsOpen(true);
+          return;
+        }
+        if (e.key === "y" || e.key === "Y") {
+          e.preventDefault();
+          handleOpenYouTube();
+          return;
+        }
+
+        // Force header focus if they try to navigate or it's not set
+        if (focusArea !== "header") {
+          setFocusArea("header");
+          setHeaderSelectedIndex(0);
+          return;
+        }
+
+        if (focusArea === "header") {
+          if (e.key === "ArrowLeft") {
+            e.preventDefault();
+            setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 1));
+          } else if (e.key === "ArrowRight") {
+            e.preventDefault();
+            setHeaderSelectedIndex((prev) => (prev < 1 ? prev + 1 : 0));
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            if (headerSelectedIndex === 0) {
+              handleOpenYouTube();
+            } else {
+              setSettingsOpen(true);
+            }
+          }
+        }
+        return;
+      }
 
       if (focusArea === "carousel") {
         if (e.key === "ArrowLeft") {
@@ -843,7 +1079,7 @@ function App() {
     const handleOptionsMenuKeys = (e: KeyboardEvent) => {
       if (!optionsMenuGame || editingGame) return;
 
-      const availableOptions = optionsMenuGame.isCustom 
+      const availableOptions = optionsMenuGame.isCustom
         ? ["play", "edit", "delete", "cancel"]
         : ["play", "cancel"];
 
@@ -1048,12 +1284,12 @@ function App() {
       if (gp) {
         const now = Date.now();
         if (now - lastInputTime.current > cooldown) {
-          const { 
-            games: currentGames, 
-            selectedGameIndex: currentIndex, 
-            settingsOpen: isSettingsOpen, 
-            launchingGame: isLaunching, 
-            loading: isLoading, 
+          const {
+            games: currentGames,
+            selectedGameIndex: currentIndex,
+            settingsOpen: isSettingsOpen,
+            launchingGame: isLaunching,
+            loading: isLoading,
             youtubeActive: isYoutubeActive,
             optionsMenuGame: isOptionsMenuOpen,
             optionsMenuSelectedIndex: selectedOptionIdx,
@@ -1327,7 +1563,7 @@ function App() {
                 }
               }
             } else if (isOptionsMenuOpen) {
-              const availableOptions = isOptionsMenuOpen.isCustom 
+              const availableOptions = isOptionsMenuOpen.isCustom
                 ? ["play", "edit", "delete", "cancel"]
                 : ["play", "cancel"];
 
@@ -1414,19 +1650,67 @@ function App() {
     };
   }, []);
 
-  // Image load helper
+  // Image load helper — fetches cover from IGDB and persists to DB + disk
   const handleImageError = (appid: string) => {
     setImageErrors((prev) => ({ ...prev, [appid]: true }));
+
+    if (igdbAttemptsRef.current[appid]) return;
+    igdbAttemptsRef.current[appid] = true;
+
+    const game = games.find((g) => g.appid === appid);
+    if (!game) return;
+
+    invoke<string>("get_game_image_url", { gameName: game.name })
+      .then(async (newUrl) => {
+        setImageErrors((prev) => {
+          const next = { ...prev };
+          delete next[appid];
+          return next;
+        });
+
+        // Persist the cover to the database + download to disk
+        try {
+          const dto = await invoke<GameDto>("db_update_game", {
+            gameId: appid,
+            name: null,
+            exePath: null,
+            coverUrl: newUrl,
+          });
+          const updated = gameDtoToSteamGame(dto);
+          if (game.isCustom) {
+            setCustomGames((prev) => prev.map((g) => (g.appid === appid ? updated : g)));
+          } else {
+            setSteamGames((prev) => prev.map((g) => (g.appid === appid ? updated : g)));
+          }
+        } catch {
+          // Fallback: update UI only
+          if (game.isCustom) {
+            setCustomGames((prev) => prev.map((g) => (g.appid === appid ? { ...g, image_url: newUrl } : g)));
+          } else {
+            setSteamGames((prev) => prev.map((g) => (g.appid === appid ? { ...g, image_url: newUrl } : g)));
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn(`Failed to fetch IGDB cover for ${game.name}:`, err);
+      });
   };
+
 
   const activeGame = games[selectedGameIndex];
 
-  // Resolve image source for local vs remote images
-  const getGameImageUrl = (game: SteamGame) => {
+  // Resolve image source: local AppData path → asset:// URL, remote → passthrough
+  const getGameImageUrl = (game: SteamGame): string => {
     if (!game.image_url) return "";
-    if (game.image_url.startsWith("http://") || game.image_url.startsWith("https://") || game.image_url.startsWith("data:")) {
+    // Remote URLs pass through as-is
+    if (
+      game.image_url.startsWith("http://") ||
+      game.image_url.startsWith("https://") ||
+      game.image_url.startsWith("data:")
+    ) {
       return game.image_url;
     }
+    // Local relative path (e.g. "assets/covers/abc.jpg") — needs convertFileSrc
     try {
       return convertFileSrc(game.image_url);
     } catch (e) {
@@ -1446,35 +1730,37 @@ function App() {
     return `linear-gradient(135deg, hsl(${h1}, 65%, 22%) 0%, hsl(${h2}, 65%, 10%) 100%)`;
   };
 
-  // Generate game-specific mock widgets for PS5 theme
+  // Generate game-specific widgets for PS5 theme (updated with real playtime stats)
   const getGameWidgets = (game: SteamGame) => {
     const name = game.name;
+    const playtimeFormatted = playtimes[game.appid]?.formatted || "< 1m";
+
     if (name.includes("Baldur's Gate")) {
       return [
         { title: "Troféus", desc: "Ato III iniciado", value: "32%", progress: 32 },
         { title: "Atividades", desc: "Acampamento na taverna", value: "Aventura ativa" },
-        { title: "Dica de Jogo", desc: "Descubra segredos de Baldur's Gate", value: "Dica do Ato 3" }
+        { title: "Tempo jogado", desc: "Tempo total registrado", value: playtimeFormatted }
       ];
     }
     if (name.includes("Cyberpunk")) {
       return [
         { title: "Troféus", desc: "Cidade dos Sonhos", value: "48%", progress: 48 },
         { title: "Atividades", desc: "Trabalho Sujo com Rogue", value: "Missão pendente" },
-        { title: "Colecionáveis", desc: "Tarôs encontrados: 14/22", value: "Ver mapa" }
+        { title: "Tempo jogado", desc: "Tempo total registrado", value: playtimeFormatted }
       ];
     }
     if (name.includes("Elden Ring")) {
       return [
         { title: "Troféus", desc: "Lendário Lorde de Limgrave", value: "78%", progress: 78 },
         { title: "Atividades", desc: "Explorar Ruínas de Caelid", value: "Nível 105" },
-        { title: "Chefes derrotados", desc: "Margit, Godrick, Radahn...", value: "5/15" }
+        { title: "Tempo jogado", desc: "Tempo total registrado", value: playtimeFormatted }
       ];
     }
     if (name.includes("Hades")) {
       return [
         { title: "Fugas", desc: "Tentativas de fuga bem sucedidas: 14", value: "14 fugas" },
         { title: "Troféus", desc: "Sangue e Trevas", value: "90%", progress: 90 },
-        { title: "Favor com Deuses", desc: "Néctares dados: 12/20", value: "Favor ativo" }
+        { title: "Tempo jogado", desc: "Tempo total registrado", value: playtimeFormatted }
       ];
     }
     let hash = 0;
@@ -1482,18 +1768,14 @@ function App() {
       hash = name.charCodeAt(i) + ((hash << 5) - hash);
     }
     const completion = Math.abs(hash % 90) + 10;
-    const hours = Math.abs(hash % 150) + 12;
     return [
       { title: "Troféus", desc: "Progresso da Campanha", value: `${completion}%`, progress: completion },
       { title: "Atividades", desc: "Retomar de onde parou", value: "Jogar agora" },
-      { title: "Estatísticas", desc: "Tempo total registrado", value: `${hours} horas` }
+      { title: "Tempo jogado", desc: "Tempo total registrado", value: playtimeFormatted }
     ];
   };
 
-  // Resolve background ambient glow url
-  const ambientBackgroundUrl = activeGame
-    ? getGameImageUrl(activeGame)
-    : "";
+
 
   return (
     <div className="app-root">
@@ -1502,7 +1784,7 @@ function App() {
           <div className="youtube-header-title">
             <span className="youtube-logo-red">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
               </svg>
             </span>
             <span className="youtube-header-text">YouTube</span>
@@ -1542,8 +1824,8 @@ function App() {
       <div
         className="ambient-bg"
         style={{
-          backgroundImage: activeGame && activeGame.image_url ? `url(${ambientBackgroundUrl})` : "none",
-          backgroundColor: activeGame && !activeGame.image_url ? "transparent" : "var(--bg-primary)",
+          backgroundImage: ambientBgUrl ? `url(${ambientBgUrl})` : "none",
+          backgroundColor: ambientBgUrl ? "var(--bg-primary)" : "transparent",
         }}
       >
         {activeGame && !activeGame.image_url && (
@@ -1561,18 +1843,18 @@ function App() {
               <div className="ps5-menu-tab">Mídia</div>
             </div>
             <div className="ps5-header-right">
-              <button 
+              <button
                 className={`ps5-icon-btn ${focusArea === "header" && headerSelectedIndex === 0 ? "focused" : ""}`}
-                onClick={handleOpenYouTube} 
+                onClick={handleOpenYouTube}
                 title="YouTube"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                  <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
                 </svg>
               </button>
-              <button 
+              <button
                 className={`ps5-icon-btn ${focusArea === "header" && headerSelectedIndex === 1 ? "focused" : ""}`}
-                onClick={() => setSettingsOpen(true)} 
+                onClick={() => setSettingsOpen(true)}
                 title="Configurações"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1594,20 +1876,20 @@ function App() {
             </div>
 
             <div className="system-status">
-              <button 
+              <button
                 className={`header-icon-btn ${focusArea === "header" && headerSelectedIndex === 0 ? "focused" : ""}`}
-                onClick={handleOpenYouTube} 
-                title="YouTube" 
+                onClick={handleOpenYouTube}
+                title="YouTube"
                 style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: "0.25rem", transition: "all 0.2s ease" }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                  <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
                 </svg>
               </button>
-              <button 
+              <button
                 className={`header-icon-btn ${focusArea === "header" && headerSelectedIndex === 1 ? "focused" : ""}`}
-                onClick={() => setSettingsOpen(true)} 
-                title="Configurações" 
+                onClick={() => setSettingsOpen(true)}
+                title="Configurações"
                 style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: "0.25rem", transition: "all 0.2s ease" }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1622,108 +1904,133 @@ function App() {
 
         {/* Main Content Area */}
         <main className="console-content">
-          <div className="game-info-panel">
-            {activeGame && (
-              <>
-                {currentTheme === "ps5" ? (
-                  <div className="ps5-game-hero-container">
-                    <div className="ps5-game-logo">{activeGame.name}</div>
-                    <div className="game-meta-active">
-                      <span>
-                        Tipo: <span className="meta-pill">{activeGame.isCustom ? "Customizado" : "Steam"}</span>
-                      </span>
-                      <span>•</span>
-                      <span>{activeGame.isCustom ? "Atalho Local Executável" : `AppID: ${activeGame.appid}`}</span>
-                    </div>
-                    <div className="ps5-hero-actions">
-                      <button className="ps5-play-btn" onClick={() => handleTryLaunchGame(activeGame)}>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M8 5v14l11-7z"/>
-                        </svg>
-                        Jogar
-                      </button>
-                    </div>
-                    
-                    <div className="ps5-widgets-row">
-                      {getGameWidgets(activeGame).map((w, idx) => (
-                        <div className="ps5-widget-card" key={idx}>
-                          <div className="ps5-widget-title">{w.title}</div>
-                          <div className="ps5-widget-desc">{w.desc}</div>
-                          {w.progress !== undefined ? (
-                            <div className="ps5-widget-progress-container">
-                              <span className="ps5-widget-value">{w.value}</span>
-                              <div className="ps5-widget-progress-bar">
-                                <div className="ps5-widget-progress-fill" style={{ width: `${w.progress}%` }}></div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="ps5-widget-value">{w.value}</div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <h1 className="game-title-active">{activeGame.name}</h1>
-                    <div className="game-meta-active">
-                      <span>
-                        Tipo: <span className="meta-pill">{activeGame.isCustom ? "Customizado" : "Steam"}</span>
-                      </span>
-                      <span>•</span>
-                      <span>{activeGame.isCustom ? "Atalho Local Executável" : `AppID: ${activeGame.appid}`}</span>
-                    </div>
-                  </>
-                )}
-              </>
-            )}
-          </div>
-
-          {loading ? (
-            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "300px" }}>
-              <div className="spinner"></div>
-            </div>
-          ) : (
-            <div className="games-carousel-wrapper">
-              <div className="games-carousel" ref={carouselRef}>
-                {games.map((game, index) => {
-                  const isFocused = index === selectedGameIndex && focusArea === "carousel";
-                  const isErr = imageErrors[game.appid] || !game.image_url;
-
-                  return (
-                    <div
-                      key={game.appid}
-                      className={`game-card ${isFocused ? "focused" : ""}`}
-                      onClick={() => {
-                        if (isFocused) {
-                          handleTryLaunchGame(game);
-                        } else {
-                          setSelectedGameIndex(index);
-                          setFocusArea("carousel");
-                        }
-                      }}
-                    >
-                      {isErr ? (
-                        <div className="game-card-placeholder" style={{ background: getGradientBg(game.name) }}>
-                          <div className="placeholder-tag">{game.isCustom ? "Jogo Custom" : "Jogo Steam"}</div>
-                          <div className="placeholder-text">{game.name}</div>
-                        </div>
-                      ) : (
-                        <div className="game-card-img-wrapper">
-                          <img
-                            src={getGameImageUrl(game)}
-                            alt={game.name}
-                            className="game-card-img"
-                            onError={() => handleImageError(game.appid)}
-                          />
-                          <div className="game-card-overlay"></div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+          {games.length === 0 && !loading ? (
+            <div className="empty-library-container">
+              <div className="empty-library-content">
+                <div className="empty-library-icon">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                    <path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16" />
+                  </svg>
+                </div>
+                <h2>Sua Biblioteca está Vazia</h2>
+                <p>Adicione um jogo personalizado nas Configurações para começar a jogar.</p>
+                <button
+                  className="empty-library-btn"
+                  onClick={() => { setSettingsOpen(true); setSettingsTab("custom"); }}
+                >
+                  Adicionar Jogo
+                </button>
               </div>
             </div>
+          ) : (
+            <>
+              <div className="game-info-panel">
+                {activeGame && (
+                  <>
+                    {currentTheme === "ps5" ? (
+                      <div className="ps5-game-hero-container">
+                        <div className="ps5-game-logo">{activeGame.name}</div>
+                        <div className="game-meta-active">
+                          <span>
+                            Tipo: <span className="meta-pill">{activeGame.isCustom ? "Customizado" : "Steam"}</span>
+                          </span>
+                          <span>•</span>
+                          <span>{activeGame.isCustom ? "Atalho Local Executável" : `AppID: ${activeGame.appid}`}</span>
+                        </div>
+                        <div className="ps5-hero-actions">
+                          <button className="ps5-play-btn" onClick={() => handleTryLaunchGame(activeGame)}>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M8 5v14l11-7z" />
+                            </svg>
+                            Jogar
+                          </button>
+                        </div>
+
+                        <div className="ps5-widgets-row">
+                          {getGameWidgets(activeGame).map((w, idx) => (
+                            <div className="ps5-widget-card" key={idx}>
+                              <div className="ps5-widget-title">{w.title}</div>
+                              <div className="ps5-widget-desc">{w.desc}</div>
+                              {w.progress !== undefined ? (
+                                <div className="ps5-widget-progress-container">
+                                  <span className="ps5-widget-value">{w.value}</span>
+                                  <div className="ps5-widget-progress-bar">
+                                    <div className="ps5-widget-progress-fill" style={{ width: `${w.progress}%` }}></div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="ps5-widget-value">{w.value}</div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <h1 className="game-title-active">{activeGame.name}</h1>
+                        <div className="game-meta-active">
+                          <span>
+                            Tipo: <span className="meta-pill">{activeGame.isCustom ? "Customizado" : "Steam"}</span>
+                          </span>
+                          <span>•</span>
+                          <span>{activeGame.isCustom ? "Atalho Local Executável" : `AppID: ${activeGame.appid}`}</span>
+                          <span>•</span>
+                          <span>Tempo Jogado: <span className="meta-pill">{playtimes[activeGame.appid]?.formatted || "< 1m"}</span></span>
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {loading ? (
+                <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "300px" }}>
+                  <div className="spinner"></div>
+                </div>
+              ) : (
+                <div className="games-carousel-wrapper">
+                  <div className="games-carousel" ref={carouselRef}>
+                    {games.map((game, index) => {
+                      const isFocused = index === selectedGameIndex && focusArea === "carousel";
+                      const isErr = imageErrors[game.appid] || !game.image_url;
+
+                      return (
+                        <div
+                          key={game.appid}
+                          className={`game-card ${isFocused ? "focused" : ""}`}
+                          onClick={() => {
+                            if (isFocused) {
+                              handleTryLaunchGame(game);
+                            } else {
+                              setSelectedGameIndex(index);
+                              setFocusArea("carousel");
+                            }
+                          }}
+                        >
+                          {isErr ? (
+                            <div className="game-card-placeholder" style={{ background: getGradientBg(game.name) }}>
+                              <div className="placeholder-tag">{game.isCustom ? "Jogo Custom" : "Jogo Steam"}</div>
+                              <div className="placeholder-text">{game.name}</div>
+                            </div>
+                          ) : (
+                            <div className="game-card-img-wrapper">
+                              <img
+                                src={getGameImageUrl(game)}
+                                alt={game.name}
+                                className="game-card-img"
+                                onError={() => handleImageError(game.appid)}
+                              />
+                              <div className="game-card-overlay"></div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </main>
 
@@ -1745,7 +2052,7 @@ function App() {
         <div className="settings-overlay" onClick={() => setSettingsOpen(false)}>
           <div className="settings-card" onClick={(e) => e.stopPropagation()}>
             <h2>Configurações do Atlas</h2>
- 
+
             {/* Tab navigation inside settings */}
             <div className="settings-tabs">
               <button
@@ -1770,7 +2077,7 @@ function App() {
                 Aparência
               </button>
             </div>
- 
+
             {/* Tab 1: Geral */}
             {settingsTab === "geral" && (
               <div className="settings-section">
@@ -1792,7 +2099,7 @@ function App() {
                     <span className="slider"></span>
                   </label>
                 </div>
- 
+
                 <div className={`settings-row ${settingsFocusArea === "content" && settingsSelectedIndex === 1 ? "focused" : ""}`}>
                   <div className="settings-label">
                     <span className="settings-label-title">Recarregar Biblioteca</span>
@@ -1800,7 +2107,7 @@ function App() {
                       Força uma nova varredura nas pastas locais do Steam para detectar novos jogos instalados.
                     </span>
                   </div>
-                  <button 
+                  <button
                     id="geral-recarregar-btn"
                     className={`btn-secondary ${settingsFocusArea === "content" && settingsSelectedIndex === 1 ? "focused" : ""}`}
                     onClick={() => { loadGames(); setSettingsOpen(false); }}
@@ -1808,7 +2115,7 @@ function App() {
                     Recarregar
                   </button>
                 </div>
- 
+
                 {isSimulated && (
                   <div className="settings-alert">
                     ⚠️ **Aviso:** O Steam local ou a API do Tauri não foram detectados. A interface está exibindo jogos de teste e operando em modo de simulação. Instale o Rust e configure o app no Windows para habilitar o comportamento nativo.
@@ -1868,7 +2175,7 @@ function App() {
                 </div>
               </div>
             )}
- 
+
             {/* Tab 3: Aparência (Themes) */}
             {settingsTab === "aparencia" && (
               <div className="settings-section">
@@ -1877,7 +2184,7 @@ function App() {
                   <span className="settings-label-desc">Altere o visual geral, cores, fontes e comportamento estético do Atlas Launcher.</span>
                 </div>
                 <div className="theme-selector-grid">
-                  <div 
+                  <div
                     id="theme-card-atlas"
                     tabIndex={0}
                     className={`theme-selector-card ${currentTheme === "atlas" ? "active" : ""} ${settingsFocusArea === "content" && settingsSelectedIndex === 0 ? "focused" : ""}`}
@@ -1894,8 +2201,8 @@ function App() {
                     </div>
                     <div className="theme-card-title">Atlas (Padrão)</div>
                   </div>
- 
-                  <div 
+
+                  <div
                     id="theme-card-ps5"
                     tabIndex={0}
                     className={`theme-selector-card ${currentTheme === "ps5" ? "active" : ""} ${settingsFocusArea === "content" && settingsSelectedIndex === 1 ? "focused" : ""}`}
@@ -1915,9 +2222,9 @@ function App() {
                 </div>
               </div>
             )}
- 
+
             <div className="settings-footer">
-              <button 
+              <button
                 id="settings-close-btn"
                 className={`btn-primary ${settingsFocusArea === "footer" ? "focused" : ""}`}
                 onClick={() => setSettingsOpen(false)}
@@ -1945,48 +2252,48 @@ function App() {
               <span className="options-subtitle">Opções de Jogo</span>
               <h2 className="options-title">{optionsMenuGame.name}</h2>
             </div>
-            
+
             <div className="options-list">
-              <button 
+              <button
                 className={`options-btn play-btn ${optionsMenuSelectedIndex === 0 ? "focused" : ""}`}
                 onClick={() => triggerOption("play", optionsMenuGame)}
                 onMouseEnter={() => setOptionsMenuSelectedIndex(0)}
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5v14l11-7z"/>
+                  <path d="M8 5v14l11-7z" />
                 </svg>
                 Iniciar Jogo
               </button>
 
               {optionsMenuGame.isCustom ? (
                 <>
-                  <button 
+                  <button
                     className={`options-btn edit-btn ${optionsMenuSelectedIndex === 1 ? "focused" : ""}`}
                     onClick={() => triggerOption("edit", optionsMenuGame)}
                     onMouseEnter={() => setOptionsMenuSelectedIndex(1)}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <path d="M12 20h9"/>
-                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
                     </svg>
                     Editar Atalho
                   </button>
 
-                  <button 
+                  <button
                     className={`options-btn delete-btn ${optionsMenuSelectedIndex === 2 ? "focused" : ""}`}
                     onClick={() => triggerOption("delete", optionsMenuGame)}
                     onMouseEnter={() => setOptionsMenuSelectedIndex(2)}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <polyline points="3 6 5 6 21 6"/>
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                      <line x1="10" y1="11" x2="10" y2="17"/>
-                      <line x1="14" y1="11" x2="14" y2="17"/>
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      <line x1="10" y1="11" x2="10" y2="17" />
+                      <line x1="14" y1="11" x2="14" y2="17" />
                     </svg>
                     Excluir Atalho
                   </button>
 
-                  <button 
+                  <button
                     className={`options-btn cancel-btn ${optionsMenuSelectedIndex === 3 ? "focused" : ""}`}
                     onClick={() => triggerOption("cancel", optionsMenuGame)}
                     onMouseEnter={() => setOptionsMenuSelectedIndex(3)}
@@ -1995,7 +2302,7 @@ function App() {
                   </button>
                 </>
               ) : (
-                <button 
+                <button
                   className={`options-btn cancel-btn ${optionsMenuSelectedIndex === 1 ? "focused" : ""}`}
                   onClick={() => triggerOption("cancel", optionsMenuGame)}
                   onMouseEnter={() => setOptionsMenuSelectedIndex(1)}
@@ -2004,7 +2311,7 @@ function App() {
                 </button>
               )}
             </div>
-            
+
             {gamepadConnected && (
               <div className="modal-gamepad-hints">
                 <span className="yt-hint"><span className="yt-hint-key">D-Pad ↕</span> Navegar</span>
@@ -2065,15 +2372,24 @@ function App() {
                   <button type="button" className="btn-secondary" onClick={handleEditPickImg}>
                     Buscar
                   </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleSearchIgdbForEdit}
+                    disabled={editingSearchingIgdb}
+                  >
+                    {editingSearchingIgdb ? "Buscando..." : "Buscar IGDB"}
+                  </button>
                 </div>
               </div>
+
 
               <div className="settings-footer">
                 <button type="button" className="btn-secondary" onClick={() => setEditingGame(null)}>
                   Cancelar
                 </button>
-                <button type="submit" className="btn-primary">
-                  Salvar Alterações
+                <button type="submit" className="btn-primary" disabled={editingSearchingIgdb}>
+                  {editingSearchingIgdb ? "Buscando Capa..." : "Salvar Alterações"}
                 </button>
               </div>
             </form>
@@ -2105,7 +2421,7 @@ function App() {
                     />
                     <span className="search-icon-hint">Y</span>
                   </div>
-                  
+
                   <button
                     id="add-game-manual-browse-btn"
                     type="button"
@@ -2114,7 +2430,7 @@ function App() {
                     onClick={handlePickExe}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                     </svg>
                   </button>
                 </div>
@@ -2214,8 +2530,18 @@ function App() {
                         >
                           Buscar
                         </button>
+                        <button
+                          id="add-game-custom-igdb-btn"
+                          type="button"
+                          className="btn-secondary"
+                          onClick={handleSearchIgdbForCustom}
+                          disabled={searchingIgdb}
+                        >
+                          {searchingIgdb ? "Buscando..." : "Buscar IGDB"}
+                        </button>
                       </div>
                     </div>
+
                   </div>
 
                   <div className="settings-footer" style={{ padding: 0, marginTop: "1.5rem" }}>
@@ -2231,8 +2557,9 @@ function App() {
                       id="add-game-submit-btn"
                       type="submit"
                       className={`btn-primary ${addGameSelectedIndex === 7 ? "focused" : ""}`}
+                      disabled={searchingIgdb}
                     >
-                      Adicionar Jogo
+                      {searchingIgdb ? "Buscando Capa..." : "Adicionar Jogo"}
                     </button>
                   </div>
                 </form>
@@ -2255,14 +2582,14 @@ function App() {
         <div className="settings-overlay file-explorer-overlay" onClick={() => setFileExplorerOpen(false)}>
           <div className="settings-card file-explorer-card" onClick={(e) => e.stopPropagation()}>
             <h2>Explorador de Arquivos Atlas</h2>
-            
+
             <div className="file-explorer-path-bar">
               <span>Caminho:</span>
               <strong>{fileExplorerPath || "Meu Computador (Unidades de Disco)"}</strong>
             </div>
 
-            <div 
-              className="file-explorer-list" 
+            <div
+              className="file-explorer-list"
               ref={fileExplorerListRef}
             >
               {fileExplorerItems.length === 0 ? (
@@ -2285,7 +2612,7 @@ function App() {
                   } else if (fileExplorerPath === "") {
                     icon = "💾";
                   }
-                  
+
                   return (
                     <div
                       key={item.path + "-" + index}
@@ -2303,15 +2630,15 @@ function App() {
             </div>
 
             <div className="settings-footer" style={{ marginTop: "1rem" }}>
-              <button 
-                type="button" 
-                className="btn-secondary" 
+              <button
+                type="button"
+                className="btn-secondary"
                 onClick={() => setFileExplorerOpen(false)}
               >
                 Fechar
               </button>
             </div>
-            
+
             {gamepadConnected && (
               <div className="modal-gamepad-hints" style={{ marginTop: "1.25rem" }}>
                 <span className="yt-hint"><span className="yt-hint-key">⇅</span> Navegar</span>
