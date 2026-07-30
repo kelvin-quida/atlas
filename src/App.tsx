@@ -78,6 +78,18 @@ function App() {
   const [gamepadConnected, setGamepadConnected] = useState(false);
   const [youtubeActive, setYoutubeActive] = useState(false);
 
+  // States for options menu and editing
+  const [optionsMenuGame, setOptionsMenuGame] = useState<SteamGame | null>(null);
+  const [optionsMenuSelectedIndex, setOptionsMenuSelectedIndex] = useState(0);
+  const [editingGame, setEditingGame] = useState<SteamGame | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editExe, setEditExe] = useState("");
+  const [editImg, setEditImg] = useState("");
+
+  // States for header focus and navigation
+  const [focusArea, setFocusArea] = useState<"carousel" | "header">("carousel");
+  const [headerSelectedIndex, setHeaderSelectedIndex] = useState(0);
+
   // Sync theme with document class/attribute
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", currentTheme);
@@ -100,13 +112,32 @@ function App() {
     settingsOpen,
     launchingGame,
     loading,
-    youtubeActive
+    youtubeActive,
+    optionsMenuGame,
+    optionsMenuSelectedIndex,
+    editingGame,
+    customGames,
+    focusArea,
+    headerSelectedIndex
   });
 
   // Sync state values with ref
   useEffect(() => {
-    stateRef.current = { games, selectedGameIndex, settingsOpen, launchingGame, loading, youtubeActive };
-  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, youtubeActive]);
+    stateRef.current = { 
+      games, 
+      selectedGameIndex, 
+      settingsOpen, 
+      launchingGame, 
+      loading, 
+      youtubeActive,
+      optionsMenuGame,
+      optionsMenuSelectedIndex,
+      editingGame,
+      customGames,
+      focusArea,
+      headerSelectedIndex
+    };
+  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, youtubeActive, optionsMenuGame, optionsMenuSelectedIndex, editingGame, customGames, focusArea, headerSelectedIndex]);
 
   const handleOpenYouTube = async () => {
     try {
@@ -306,6 +337,93 @@ function App() {
     localStorage.setItem("atlas_custom_games", JSON.stringify(updated));
   };
 
+  const handleTryLaunchGame = (game: SteamGame) => {
+    setOptionsMenuSelectedIndex(0);
+    setOptionsMenuGame(game);
+  };
+
+  const triggerOption = (option: string, game: SteamGame) => {
+    if (option === "play") {
+      setOptionsMenuGame(null);
+      handleLaunchGame(game);
+    } else if (option === "edit") {
+      setEditName(game.name);
+      setEditExe(game.exe_path || "");
+      setEditImg(game.image_url || "");
+      setEditingGame(game);
+      setOptionsMenuGame(null);
+    } else if (option === "delete") {
+      if (confirm(`Tem certeza que deseja excluir o atalho para ${game.name}?`)) {
+        handleDeleteCustomGame(game.appid);
+        setOptionsMenuGame(null);
+      }
+    } else if (option === "cancel") {
+      setOptionsMenuGame(null);
+    }
+  };
+
+  const triggerOptionRef = useRef<any>(null);
+  triggerOptionRef.current = triggerOption;
+
+  const handleEditPickExe = async () => {
+    try {
+      const path = await invoke<string>("pick_file", {
+        filter: "Executáveis (*.exe;*.sh;*.bin)|*.exe;*.sh;*.bin|Todos os Arquivos (*.*)|*.*",
+        title: "Selecione o Executável do Jogo"
+      });
+      setEditExe(path);
+      if (!editName && path) {
+        const parts = path.replace(/\\/g, "/").split("/");
+        const fileName = parts[parts.length - 1];
+        const dotIndex = fileName.lastIndexOf(".");
+        setEditName(dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName);
+      }
+    } catch (e) {
+      if (e !== "Canceled") {
+        alert(`Erro ao selecionar arquivo: ${e}`);
+      }
+    }
+  };
+
+  const handleEditPickImg = async () => {
+    try {
+      const path = await invoke<string>("pick_file", {
+        filter: "Imagens (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp",
+        title: "Selecione a Imagem da Capa"
+      });
+      setEditImg(path);
+    } catch (e) {
+      if (e !== "Canceled") {
+        alert(`Erro ao selecionar imagem: ${e}`);
+      }
+    }
+  };
+
+  const handleEditCustomGameSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGame) return;
+    if (!editName || !editExe) {
+      alert("Por favor, preencha pelo menos o Nome e o Executável.");
+      return;
+    }
+
+    const updated = customGames.map((g) => {
+      if (g.appid === editingGame.appid) {
+        return {
+          ...g,
+          name: editName,
+          exe_path: editExe,
+          image_url: editImg
+        };
+      }
+      return g;
+    });
+
+    setCustomGames(updated);
+    localStorage.setItem("atlas_custom_games", JSON.stringify(updated));
+    setEditingGame(null);
+  };
+
   // Clock initialization
   useEffect(() => {
     const updateTime = () => {
@@ -325,10 +443,10 @@ function App() {
     checkShellStatus();
   }, []);
 
-  // Keyboard navigation for carousel
+  // Keyboard navigation for carousel and header buttons
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (settingsOpen || launchingGame || loading) return;
+      if (settingsOpen || launchingGame || loading || optionsMenuGame || editingGame) return;
 
       if (youtubeActive) {
         if (e.key === "Escape" || e.key === "Backspace") {
@@ -340,27 +458,94 @@ function App() {
 
       if (games.length === 0) return;
 
-      if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        setSelectedGameIndex((prev) => (prev > 0 ? prev - 1 : games.length - 1));
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault();
-        setSelectedGameIndex((prev) => (prev < games.length - 1 ? prev + 1 : 0));
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        handleLaunchGame(games[selectedGameIndex]);
-      } else if (e.key === "s" || e.key === "S") {
-        e.preventDefault();
-        setSettingsOpen(true);
-      } else if (e.key === "y" || e.key === "Y") {
-        e.preventDefault();
-        handleOpenYouTube();
+      if (focusArea === "carousel") {
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          setSelectedGameIndex((prev) => (prev > 0 ? prev - 1 : games.length - 1));
+        } else if (e.key === "ArrowRight") {
+          e.preventDefault();
+          setSelectedGameIndex((prev) => (prev < games.length - 1 ? prev + 1 : 0));
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setFocusArea("header");
+          setHeaderSelectedIndex(0);
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          handleTryLaunchGame(games[selectedGameIndex]);
+        } else if (e.key === "s" || e.key === "S") {
+          e.preventDefault();
+          setSettingsOpen(true);
+        } else if (e.key === "y" || e.key === "Y") {
+          e.preventDefault();
+          handleOpenYouTube();
+        }
+      } else if (focusArea === "header") {
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 1));
+        } else if (e.key === "ArrowRight") {
+          e.preventDefault();
+          setHeaderSelectedIndex((prev) => (prev < 1 ? prev + 1 : 0));
+        } else if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setFocusArea("carousel");
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          if (headerSelectedIndex === 0) {
+            handleOpenYouTube();
+          } else {
+            setSettingsOpen(true);
+          }
+        } else if (e.key === "Escape" || e.key === "Backspace") {
+          e.preventDefault();
+          setFocusArea("carousel");
+        }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, isSimulated, youtubeActive]);
+  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, isSimulated, youtubeActive, optionsMenuGame, editingGame, focusArea, headerSelectedIndex]);
+
+  // Keyboard navigation for options menu
+  useEffect(() => {
+    const handleOptionsMenuKeys = (e: KeyboardEvent) => {
+      if (!optionsMenuGame || editingGame) return;
+
+      const availableOptions = optionsMenuGame.isCustom 
+        ? ["play", "edit", "delete", "cancel"]
+        : ["play", "cancel"];
+
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setOptionsMenuSelectedIndex((prev) => (prev > 0 ? prev - 1 : availableOptions.length - 1));
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setOptionsMenuSelectedIndex((prev) => (prev < availableOptions.length - 1 ? prev + 1 : 0));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        triggerOption(availableOptions[optionsMenuSelectedIndex], optionsMenuGame);
+      } else if (e.key === "Escape" || e.key === "Backspace") {
+        e.preventDefault();
+        setOptionsMenuGame(null);
+      }
+    };
+    window.addEventListener("keydown", handleOptionsMenuKeys);
+    return () => window.removeEventListener("keydown", handleOptionsMenuKeys);
+  }, [optionsMenuGame, optionsMenuSelectedIndex, editingGame]);
+
+  // Keyboard navigation for editing custom game modal
+  useEffect(() => {
+    const handleEditKeys = (e: KeyboardEvent) => {
+      if (!editingGame) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setEditingGame(null);
+      }
+    };
+    window.addEventListener("keydown", handleEditKeys);
+    return () => window.removeEventListener("keydown", handleEditKeys);
+  }, [editingGame]);
 
   // Keyboard navigation for settings
   useEffect(() => {
@@ -434,7 +619,19 @@ function App() {
       if (gp) {
         const now = Date.now();
         if (now - lastInputTime.current > cooldown) {
-          const { games: currentGames, selectedGameIndex: currentIndex, settingsOpen: isSettingsOpen, launchingGame: isLaunching, loading: isLoading, youtubeActive: isYoutubeActive } = stateRef.current;
+          const { 
+            games: currentGames, 
+            selectedGameIndex: currentIndex, 
+            settingsOpen: isSettingsOpen, 
+            launchingGame: isLaunching, 
+            loading: isLoading, 
+            youtubeActive: isYoutubeActive,
+            optionsMenuGame: isOptionsMenuOpen,
+            optionsMenuSelectedIndex: selectedOptionIdx,
+            editingGame: isEditing,
+            focusArea,
+            headerSelectedIndex
+          } = stateRef.current;
 
           if (!isLoading && !isLaunching) {
             let inputTriggered = false;
@@ -443,34 +640,30 @@ function App() {
             const btnA = gp.buttons[0]?.pressed; // Confirm / Play
             const btnB = gp.buttons[1]?.pressed; // Back / Close Settings
             const btnY = gp.buttons[3]?.pressed; // Open YouTube
-            const btnStart = gp.buttons[9]?.pressed || gp.buttons[8]?.pressed; // Settings Toggle
+            const btnStart = gp.buttons[9]?.pressed; // Start Button (Game Options)
+            const btnSelect = gp.buttons[8]?.pressed; // Select Button (Atlas Settings)
             const dpadLeft = gp.buttons[14]?.pressed;
             const dpadRight = gp.buttons[15]?.pressed;
+            const dpadUp = gp.buttons[12]?.pressed;
+            const dpadDown = gp.buttons[13]?.pressed;
             const stickX = gp.axes[0]; // Left stick horizontal axis
+            const stickY = gp.axes[1]; // Left stick vertical axis
 
             if (isYoutubeActive) {
               // ── Full YouTube gamepad control ──
-              const dpadUp = gp.buttons[12]?.pressed;
-              const dpadDown = gp.buttons[13]?.pressed;
-              const dpadLeft = gp.buttons[14]?.pressed;
-              const dpadRight = gp.buttons[15]?.pressed;
-              const btnA = gp.buttons[0]?.pressed;
-              const btnB = gp.buttons[1]?.pressed;
               const btnX = gp.buttons[2]?.pressed;
-              const btnY = gp.buttons[3]?.pressed;
               const btnLB = gp.buttons[4]?.pressed;
               const btnRB = gp.buttons[5]?.pressed;
               const triggerLT = gp.buttons[6]?.value ?? 0;
               const triggerRT = gp.buttons[7]?.value ?? 0;
-              const btnStart = gp.buttons[9]?.pressed;
-              const stickY = gp.axes[1]; // Left stick vertical
+              const btnStartYT = gp.buttons[9]?.pressed;
 
               const sendAction = (action: string) => {
                 invoke("youtube_gamepad_action", { action }).catch(console.error);
                 inputTriggered = true;
               };
 
-              if (btnStart) {
+              if (btnStartYT) {
                 // Start = close YouTube, back to launcher
                 handleCloseYouTube();
                 inputTriggered = true;
@@ -503,29 +696,84 @@ function App() {
               } else if (stickY > 0.6) {
                 sendAction("scroll_down");
               }
+            } else if (isEditing) {
+              if (btnB) {
+                setEditingGame(null);
+                inputTriggered = true;
+              }
             } else if (isSettingsOpen) {
               if (btnB) {
                 setSettingsOpen(false);
                 inputTriggered = true;
               }
-            } else if (currentGames.length > 0) {
-              if (dpadLeft || stickX < -0.5) {
-                setSelectedGameIndex((prev) => (prev > 0 ? prev - 1 : currentGames.length - 1));
+            } else if (isOptionsMenuOpen) {
+              const availableOptions = isOptionsMenuOpen.isCustom 
+                ? ["play", "edit", "delete", "cancel"]
+                : ["play", "cancel"];
+
+              if (dpadUp || stickY < -0.5) {
+                setOptionsMenuSelectedIndex((prev) => (prev > 0 ? prev - 1 : availableOptions.length - 1));
                 inputTriggered = true;
-              } else if (dpadRight || stickX > 0.5) {
-                setSelectedGameIndex((prev) => (prev < currentGames.length - 1 ? prev + 1 : 0));
+              } else if (dpadDown || stickY > 0.5) {
+                setOptionsMenuSelectedIndex((prev) => (prev < availableOptions.length - 1 ? prev + 1 : 0));
                 inputTriggered = true;
               } else if (btnA) {
-                if (currentGames[currentIndex]) {
-                  handleLaunchGame(currentGames[currentIndex]);
+                triggerOptionRef.current?.(availableOptions[selectedOptionIdx], isOptionsMenuOpen);
+                inputTriggered = true;
+              } else if (btnB) {
+                setOptionsMenuGame(null);
+                inputTriggered = true;
+              }
+            } else if (currentGames.length > 0) {
+              if (focusArea === "carousel") {
+                if (dpadLeft || stickX < -0.5) {
+                  setSelectedGameIndex((prev) => (prev > 0 ? prev - 1 : currentGames.length - 1));
+                  inputTriggered = true;
+                } else if (dpadRight || stickX > 0.5) {
+                  setSelectedGameIndex((prev) => (prev < currentGames.length - 1 ? prev + 1 : 0));
+                  inputTriggered = true;
+                } else if (dpadUp || stickY < -0.5) {
+                  setFocusArea("header");
+                  setHeaderSelectedIndex(0);
+                  inputTriggered = true;
+                } else if (btnA) {
+                  if (currentGames[currentIndex]) {
+                    handleTryLaunchGame(currentGames[currentIndex]);
+                    inputTriggered = true;
+                  }
+                } else if (btnStart) {
+                  if (currentGames[currentIndex]) {
+                    handleTryLaunchGame(currentGames[currentIndex]);
+                    inputTriggered = true;
+                  }
+                } else if (btnSelect) {
+                  setSettingsOpen(true);
+                  inputTriggered = true;
+                } else if (btnY) {
+                  handleOpenYouTube();
                   inputTriggered = true;
                 }
-              } else if (btnStart) {
-                setSettingsOpen(true);
-                inputTriggered = true;
-              } else if (btnY) {
-                handleOpenYouTube();
-                inputTriggered = true;
+              } else if (focusArea === "header") {
+                if (dpadLeft || stickX < -0.5) {
+                  setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 1));
+                  inputTriggered = true;
+                } else if (dpadRight || stickX > 0.5) {
+                  setHeaderSelectedIndex((prev) => (prev < 1 ? prev + 1 : 0));
+                  inputTriggered = true;
+                } else if (dpadDown || stickY > 0.5) {
+                  setFocusArea("carousel");
+                  inputTriggered = true;
+                } else if (btnA) {
+                  if (headerSelectedIndex === 0) {
+                    handleOpenYouTube();
+                  } else {
+                    setSettingsOpen(true);
+                  }
+                  inputTriggered = true;
+                } else if (btnB) {
+                  setFocusArea("carousel");
+                  inputTriggered = true;
+                }
               }
             }
 
@@ -693,12 +941,20 @@ function App() {
               <div className="ps5-menu-tab">Mídia</div>
             </div>
             <div className="ps5-header-right">
-              <button className="ps5-icon-btn" onClick={handleOpenYouTube} title="YouTube">
+              <button 
+                className={`ps5-icon-btn ${focusArea === "header" && headerSelectedIndex === 0 ? "focused" : ""}`}
+                onClick={handleOpenYouTube} 
+                title="YouTube"
+              >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
                 </svg>
               </button>
-              <button className="ps5-icon-btn" onClick={() => setSettingsOpen(true)} title="Configurações">
+              <button 
+                className={`ps5-icon-btn ${focusArea === "header" && headerSelectedIndex === 1 ? "focused" : ""}`}
+                onClick={() => setSettingsOpen(true)} 
+                title="Configurações"
+              >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="3" />
                   <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
@@ -718,34 +974,27 @@ function App() {
             </div>
 
             <div className="system-status">
-              {gamepadConnected && (
-                <div className="status-item gamepad-badge" style={{ color: "var(--accent-cyan)", borderColor: "rgba(6, 182, 212, 0.3)" }}>
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    style={{ marginRight: "0.35rem" }}
-                  >
-                    <line x1="6" x2="10" y1="12" y2="12" />
-                    <line x1="8" x2="8" y1="10" y2="14" />
-                    <line x1="15" x2="15.01" y1="13" y2="13" />
-                    <line x1="18" x2="18.01" y1="11" y2="11" />
-                    <rect x="2" y="6" width="20" height="12" rx="3" />
-                  </svg>
-                  <span>Controle Conectado</span>
-                </div>
-              )}
-              <div className="status-item">
-                <span className={`status-dot ${isSimulated ? "simulated" : ""}`}></span>
-                <span>
-                  {isSimulated ? "Biblioteca Simulada (Sem Steam)" : "Biblioteca Steam Sincronizada"}
-                </span>
-              </div>
+              <button 
+                className={`header-icon-btn ${focusArea === "header" && headerSelectedIndex === 0 ? "focused" : ""}`}
+                onClick={handleOpenYouTube} 
+                title="YouTube" 
+                style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: "0.25rem", transition: "all 0.2s ease" }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                </svg>
+              </button>
+              <button 
+                className={`header-icon-btn ${focusArea === "header" && headerSelectedIndex === 1 ? "focused" : ""}`}
+                onClick={() => setSettingsOpen(true)} 
+                title="Configurações" 
+                style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: "0.25rem", transition: "all 0.2s ease" }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
+              </button>
               <div className="system-time">{systemTime}</div>
             </div>
           </header>
@@ -767,7 +1016,7 @@ function App() {
                       <span>{activeGame.isCustom ? "Atalho Local Executável" : `AppID: ${activeGame.appid}`}</span>
                     </div>
                     <div className="ps5-hero-actions">
-                      <button className="ps5-play-btn" onClick={() => handleLaunchGame(activeGame)}>
+                      <button className="ps5-play-btn" onClick={() => handleTryLaunchGame(activeGame)}>
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                           <path d="M8 5v14l11-7z"/>
                         </svg>
@@ -818,7 +1067,7 @@ function App() {
             <div className="games-carousel-wrapper">
               <div className="games-carousel" ref={carouselRef}>
                 {games.map((game, index) => {
-                  const isFocused = index === selectedGameIndex;
+                  const isFocused = index === selectedGameIndex && focusArea === "carousel";
                   const isErr = imageErrors[game.appid] || !game.image_url;
 
                   return (
@@ -827,9 +1076,10 @@ function App() {
                       className={`game-card ${isFocused ? "focused" : ""}`}
                       onClick={() => {
                         if (isFocused) {
-                          handleLaunchGame(game);
+                          handleTryLaunchGame(game);
                         } else {
                           setSelectedGameIndex(index);
+                          setFocusArea("carousel");
                         }
                       }}
                     >
@@ -857,70 +1107,6 @@ function App() {
           )}
         </main>
 
-        {/* Bottom Legend / Footer */}
-        <footer className="console-footer">
-          <div className="nav-hints">
-            <div className="hint-item">
-              <span className="key-badge">◀</span>
-              <span className="key-badge">▶</span>
-              {gamepadConnected && <span className="key-badge" style={{ color: "var(--accent-cyan)" }}>L-Stick</span>}
-              <span>Navegar</span>
-            </div>
-            <div className="hint-item">
-              <span className="key-badge">Enter</span>
-              {gamepadConnected && (
-                <span className="key-badge" style={{ color: "var(--accent-cyan)" }}>
-                  {currentTheme === "ps5" ? "✕" : "Botão A"}
-                </span>
-              )}
-              <span>Jogar</span>
-            </div>
-            <div className="hint-item">
-              <span className="key-badge">S</span>
-              {gamepadConnected && (
-                <span className="key-badge" style={{ color: "var(--accent-cyan)" }}>
-                  {currentTheme === "ps5" ? "Options" : "Start"}
-                </span>
-              )}
-              <span>Configurações</span>
-            </div>
-            <div className="hint-item">
-              <span className="key-badge">Y</span>
-              {gamepadConnected && (
-                <span className="key-badge" style={{ color: "var(--accent-cyan)" }}>
-                  {currentTheme === "ps5" ? "△" : "Botão Y"}
-                </span>
-              )}
-              <span>YouTube</span>
-            </div>
-          </div>
-
-          <div className="footer-actions">
-            <button className="youtube-trigger-btn" onClick={handleOpenYouTube}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: "0.25rem" }}>
-                <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-              </svg>
-              YouTube
-            </button>
-
-            <button className="settings-trigger-btn" onClick={() => setSettingsOpen(true)}>
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-              Configurações
-            </button>
-          </div>
-        </footer>
       </div>
 
       {/* Launching overlay screen */}
@@ -1135,6 +1321,150 @@ function App() {
                 Fechar [ESC]
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Options Menu Modal */}
+      {optionsMenuGame && (
+        <div className="options-overlay" onClick={() => setOptionsMenuGame(null)}>
+          <div className="options-card" onClick={(e) => e.stopPropagation()}>
+            <div className="options-header">
+              <span className="options-subtitle">Opções de Jogo</span>
+              <h2 className="options-title">{optionsMenuGame.name}</h2>
+            </div>
+            
+            <div className="options-list">
+              <button 
+                className={`options-btn play-btn ${optionsMenuSelectedIndex === 0 ? "focused" : ""}`}
+                onClick={() => triggerOption("play", optionsMenuGame)}
+                onMouseEnter={() => setOptionsMenuSelectedIndex(0)}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z"/>
+                </svg>
+                Iniciar Jogo
+              </button>
+
+              {optionsMenuGame.isCustom ? (
+                <>
+                  <button 
+                    className={`options-btn edit-btn ${optionsMenuSelectedIndex === 1 ? "focused" : ""}`}
+                    onClick={() => triggerOption("edit", optionsMenuGame)}
+                    onMouseEnter={() => setOptionsMenuSelectedIndex(1)}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M12 20h9"/>
+                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                    </svg>
+                    Editar Atalho
+                  </button>
+
+                  <button 
+                    className={`options-btn delete-btn ${optionsMenuSelectedIndex === 2 ? "focused" : ""}`}
+                    onClick={() => triggerOption("delete", optionsMenuGame)}
+                    onMouseEnter={() => setOptionsMenuSelectedIndex(2)}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <polyline points="3 6 5 6 21 6"/>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                      <line x1="10" y1="11" x2="10" y2="17"/>
+                      <line x1="14" y1="11" x2="14" y2="17"/>
+                    </svg>
+                    Excluir Atalho
+                  </button>
+
+                  <button 
+                    className={`options-btn cancel-btn ${optionsMenuSelectedIndex === 3 ? "focused" : ""}`}
+                    onClick={() => triggerOption("cancel", optionsMenuGame)}
+                    onMouseEnter={() => setOptionsMenuSelectedIndex(3)}
+                  >
+                    Voltar
+                  </button>
+                </>
+              ) : (
+                <button 
+                  className={`options-btn cancel-btn ${optionsMenuSelectedIndex === 1 ? "focused" : ""}`}
+                  onClick={() => triggerOption("cancel", optionsMenuGame)}
+                  onMouseEnter={() => setOptionsMenuSelectedIndex(1)}
+                >
+                  Voltar
+                </button>
+              )}
+            </div>
+            
+            {gamepadConnected && (
+              <div className="modal-gamepad-hints">
+                <span className="yt-hint"><span className="yt-hint-key">D-Pad ↕</span> Navegar</span>
+                <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "✕" : "A"}</span> Confirmar</span>
+                <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "○" : "B"}</span> Voltar</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Edit Game Modal */}
+      {editingGame && (
+        <div className="settings-overlay" onClick={() => setEditingGame(null)}>
+          <div className="settings-card" onClick={(e) => e.stopPropagation()}>
+            <h2>Editar Atalho de Jogo</h2>
+
+            <form className="custom-game-form" onSubmit={handleEditCustomGameSubmit}>
+              <div className="form-group">
+                <label>Nome do Jogo *</label>
+                <div className="input-row">
+                  <input
+                    type="text"
+                    placeholder="Ex: Cyberpunk 2077"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Arquivo Executável *</label>
+                <div className="input-row">
+                  <input
+                    type="text"
+                    placeholder="Escolha o arquivo .exe do jogo"
+                    value={editExe}
+                    onChange={(e) => setEditExe(e.target.value)}
+                    required
+                    readOnly
+                  />
+                  <button type="button" className="btn-secondary" onClick={handleEditPickExe}>
+                    Buscar
+                  </button>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Imagem da Capa (Opcional - Arquivo local ou URL)</label>
+                <div className="input-row">
+                  <input
+                    type="text"
+                    placeholder="Escolha uma imagem ou cole a URL"
+                    value={editImg}
+                    onChange={(e) => setEditImg(e.target.value)}
+                  />
+                  <button type="button" className="btn-secondary" onClick={handleEditPickImg}>
+                    Buscar
+                  </button>
+                </div>
+              </div>
+
+              <div className="settings-footer">
+                <button type="button" className="btn-secondary" onClick={() => setEditingGame(null)}>
+                  Cancelar
+                </button>
+                <button type="submit" className="btn-primary">
+                  Salvar Alterações
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

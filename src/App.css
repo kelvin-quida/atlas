@@ -194,7 +194,7 @@ body {
 .games-carousel-wrapper {
   position: relative;
   width: 100%;
-  height: 380px;
+  height: 420px;
   display: flex;
   align-items: center;
   overflow: visible;
@@ -208,7 +208,7 @@ body {
   width: 100%;
   height: 100%;
   align-items: center;
-  padding: 0 2rem;
+  padding: 2rem 2rem;
   box-sizing: border-box;
   scrollbar-width: none; /* Firefox */
 }
@@ -1363,5 +1363,207 @@ input:checked + .slider:before {
   border-top-color: #0072CE;
 }
 
+/* ==========================================
+   OPTIONS MODAL & CUSTOM GAME EDITOR STYLES
+   ========================================== */
 
+.options-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(8, 8, 10, 0.85);
+  backdrop-filter: blur(15px);
+  z-index: 100;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  animation: fadeIn 0.25s ease-out;
+}
 
+.options-card {
+  width: 380px;
+  background: rgba(20, 20, 25, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.8);
+  border-radius: 16px;
+  padding: 2rem;
+  box-sizing: border-box;
+  animation: scaleUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.options-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 0.75rem;
+}
+
+.options-subtitle {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05rem;
+  color: var(--accent-cyan);
+  font-weight: 800;
+}
+
+.options-title {
+  margin: 0.25rem 0 0 0;
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.options-btn {
+  width: 100%;
+  padding: 0.85rem 1.2rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.options-btn:hover, .options-btn.focused {
+  border-color: var(--accent-cyan);
+  background: rgba(6, 182, 212, 0.1);
+  transform: translateX(6px);
+  box-shadow: 0 0 15px rgba(6, 182, 212, 0.15);
+}
+
+.options-btn.play-btn {
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(6, 182, 212, 0.25);
+}
+
+.options-btn.play-btn:hover, .options-btn.play-btn.focused {
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+  filter: brightness(1.15);
+  box-shadow: 0 6px 20px rgba(6, 182, 212, 0.45);
+}
+
+.options-btn.delete-btn {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.05);
+  border-color: rgba(239, 68, 68, 0.15);
+}
+
+.options-btn.delete-btn:hover, .options-btn.delete-btn.focused {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: #ef4444;
+  color: #ffffff;
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
+}
+
+.options-btn.cancel-btn {
+  justify-content: center;
+  color: var(--text-secondary);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.options-btn.cancel-btn:hover, .options-btn.cancel-btn.focused {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  box-shadow: none;
+  transform: none;
+}
+
+.modal-gamepad-hints {
+  display: flex;
+  gap: 1.25rem;
+  justify-content: center;
+  margin-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 1rem;
+}
+
+/* PlayStation 5 Theme Overrides for Options Popup */
+[data-theme="ps5"] .options-card {
+  border-radius: 24px;
+  background: rgba(10, 10, 14, 0.95);
+  backdrop-filter: blur(20px);
+  border-color: rgba(0, 114, 206, 0.25);
+  box-shadow: 0 35px 70px rgba(0, 0, 0, 0.95), 0 0 30px rgba(0, 114, 206, 0.15);
+}
+
+[data-theme="ps5"] .options-subtitle {
+  color: #0072CE;
+}
+
+[data-theme="ps5"] .options-btn:hover, [data-theme="ps5"] .options-btn.focused {
+  border-color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.25);
+}
+
+[data-theme="ps5"] .options-btn.play-btn {
+  background: #ffffff;
+  color: #040407;
+  border-color: transparent;
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.15);
+}
+
+[data-theme="ps5"] .options-btn.play-btn:hover, [data-theme="ps5"] .options-btn.play-btn.focused {
+  background: #ffffff;
+  color: #040407;
+  transform: scale(1.03) translateX(6px);
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.45), 0 0 4px rgba(0, 114, 206, 0.35);
+}
+
+[data-theme="ps5"] .options-btn.delete-btn {
+  color: #ff6b6b;
+  background: rgba(239, 68, 68, 0.04);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+[data-theme="ps5"] .options-btn.delete-btn:hover, [data-theme="ps5"] .options-btn.delete-btn.focused {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: #ef4444;
+  color: #ffffff;
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.35);
+}
+
+[data-theme="ps5"] .options-btn.cancel-btn {
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="ps5"] .options-btn.cancel-btn:hover, [data-theme="ps5"] .options-btn.cancel-btn.focused {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+.header-icon-btn:hover, .header-icon-btn.focused {
+  color: var(--accent-cyan) !important;
+  transform: scale(1.2);
+  filter: drop-shadow(0 0 8px var(--accent-cyan));
+  outline: none;
+}
+
+.ps5-icon-btn.focused {
+  color: #ffffff !important;
+  transform: scale(1.2);
+  filter: drop-shadow(0 0 8px #ffffff);
+  outline: none;
+}
