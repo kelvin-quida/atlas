@@ -171,15 +171,22 @@ function App() {
         setActiveDetailGame(null);
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
-        setDetailSelectedIndex((prev) => (prev > 0 ? prev - 1 : 1));
+        setDetailSelectedIndex((prev) => (prev > 0 ? prev - 1 : 2));
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
-        setDetailSelectedIndex((prev) => (prev < 1 ? prev + 1 : 0));
+        setDetailSelectedIndex((prev) => (prev < 2 ? prev + 1 : 0));
       } else if (e.key === "Enter") {
         e.preventDefault();
         if (detailSelectedIndex === 0) {
           handleTryLaunchGame(activeDetailGame);
         } else if (detailSelectedIndex === 1) {
+          setEditName(activeDetailGame.name);
+          setEditExe(activeDetailGame.exe_path || "");
+          setEditImg(activeDetailGame.image_url || "");
+          setEditBg(activeDetailGame.bg_url || "");
+          setEditTab("media");
+          setEditingGame(activeDetailGame);
+        } else if (detailSelectedIndex === 2) {
           setOptionsMenuGame(activeDetailGame);
         }
       }
@@ -1482,13 +1489,20 @@ function App() {
         if (actions.b) {
           setActiveDetailGame(null);
         } else if (actions.left) {
-          setDetailSelectedIndex((prev) => (prev > 0 ? prev - 1 : 1));
+          setDetailSelectedIndex((prev) => (prev > 0 ? prev - 1 : 2));
         } else if (actions.right) {
-          setDetailSelectedIndex((prev) => (prev < 1 ? prev + 1 : 0));
+          setDetailSelectedIndex((prev) => (prev < 2 ? prev + 1 : 0));
         } else if (actions.a || actions.start) {
           if (detailIdx === 0) {
             handleTryLaunchGame(detailGame);
           } else if (detailIdx === 1) {
+            setEditName(detailGame.name);
+            setEditExe(detailGame.exe_path || "");
+            setEditImg(detailGame.image_url || "");
+            setEditBg(detailGame.bg_url || "");
+            setEditTab("media");
+            setEditingGame(detailGame);
+          } else if (detailIdx === 2) {
             setOptionsMenuGame(detailGame);
           }
         } else if (actions.x || actions.y) {

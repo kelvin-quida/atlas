@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { SteamGame, PlaytimeStats } from "../../../types/game";
 import { getGameImageUrl } from "../../../utils/gameUtils";
@@ -8,7 +8,7 @@ interface AtlasGameDetailViewProps {
   detailSelectedIndex: number;
   playtimes: Record<string, PlaytimeStats>;
   setDetailSelectedIndex: (index: number) => void;
-  onClose: () => void;
+  onClose?: () => void;
   onTryLaunchGame: (game: SteamGame) => void;
   onOpenOptionsMenu: (game: SteamGame) => void;
   onOpenEditMedia: (game: SteamGame) => void;
@@ -19,39 +19,24 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
   detailSelectedIndex,
   playtimes,
   setDetailSelectedIndex,
-  onClose,
   onTryLaunchGame,
   onOpenOptionsMenu,
   onOpenEditMedia,
 }) => {
-  return (
-    <div className="atlas-game-detail-view">
-      {/* Top Navigation Bar */}
-      <div className="atlas-detail-topbar">
-        <button
-          tabIndex={0}
-          className={`atlas-detail-back-btn focusable ${
-            detailSelectedIndex === 2 ? "focused" : ""
-          }`}
-          onClick={onClose}
-          onMouseEnter={() => setDetailSelectedIndex(2)}
-        >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-          >
-            <line x1="19" y1="12" x2="5" y2="12" />
-            <polyline points="12 19 5 12 12 5" />
-          </svg>
-          <span>Voltar para a Biblioteca</span>
-          <span className="key-hint-badge">ESC</span>
-        </button>
-      </div>
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const playBtnRef = useRef<HTMLButtonElement | null>(null);
 
+  useEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.scrollTop = 0;
+    }
+    if (playBtnRef.current) {
+      playBtnRef.current.focus({ preventScroll: true });
+    }
+  }, [activeDetailGame]);
+
+  return (
+    <div className="atlas-game-detail-view" ref={containerRef}>
       {/* Hero Header Banner Card */}
       <div className="atlas-detail-hero-banner">
         <div className="atlas-hero-main-info">
@@ -67,19 +52,19 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
             </span>
           </div>
 
-          <h1 className="atlas-hero-title">{activeDetailGame.name}</h1>
+          <h1 className="atlas-hero-title">{activeDetailGame.name || "Sem Nome"}</h1>
 
           <p className="atlas-hero-subtitle">
             {activeDetailGame.isCustom
-              ? `Atalho local executável • ${
-                  activeDetailGame.exe_path || "Pasta do sistema"
-                }`
+              ? `Atalho local executável • ${activeDetailGame.exe_path || "Pasta do sistema"
+              }`
               : `Steam App ID: ${activeDetailGame.appid} • Sincronizado`}
           </p>
 
           {/* Hero Actions Row */}
           <div className="atlas-hero-actions-row">
             <button
+              ref={playBtnRef}
               tabIndex={0}
               className={`atlas-detail-play-btn focusable ${
                 detailSelectedIndex === 0 ? "focused" : ""
@@ -90,7 +75,7 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
               <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M8 5v14l11-7z" />
               </svg>
-              <span>Iniciar Jogo</span>
+              <span>Jogar</span>
             </button>
 
             <button
@@ -98,8 +83,30 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
               className={`atlas-detail-options-btn focusable ${
                 detailSelectedIndex === 1 ? "focused" : ""
               }`}
-              onClick={() => onOpenOptionsMenu(activeDetailGame)}
+              onClick={() => onOpenEditMedia(activeDetailGame)}
               onMouseEnter={() => setDetailSelectedIndex(1)}
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+              >
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+              </svg>
+              <span>Editar Jogo</span>
+            </button>
+
+            <button
+              tabIndex={0}
+              className={`atlas-detail-options-btn focusable ${
+                detailSelectedIndex === 2 ? "focused" : ""
+              }`}
+              onClick={() => onOpenOptionsMenu(activeDetailGame)}
+              onMouseEnter={() => setDetailSelectedIndex(2)}
             >
               <svg
                 width="20"
@@ -112,7 +119,7 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
                 <circle cx="12" cy="12" r="3" />
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
               </svg>
-              <span>Opções & Mídia</span>
+              <span>Opções</span>
             </button>
           </div>
         </div>
@@ -192,7 +199,7 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
                     <img
                       src={
                         activeDetailGame.bg_url.startsWith("http") ||
-                        activeDetailGame.bg_url.startsWith("data:")
+                          activeDetailGame.bg_url.startsWith("data:")
                           ? activeDetailGame.bg_url
                           : convertFileSrc(activeDetailGame.bg_url)
                       }
