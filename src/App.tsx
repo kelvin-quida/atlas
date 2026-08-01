@@ -73,6 +73,7 @@ function App() {
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
   const { gamepadConnected, registerLayerHandler } = useGamepad();
   const [youtubeActive, setYoutubeActive] = useState(false);
+  const [twitchActive, setTwitchActive] = useState(false);
 
   // Playtime Tracking States (Phase 5)
   const [playtimes, setPlaytimes] = useState<Record<string, { total_seconds: number; formatted: string }>>({});
@@ -135,6 +136,7 @@ function App() {
     launchingGame,
     loading,
     youtubeActive,
+    twitchActive,
     optionsMenuGame,
     optionsMenuSelectedIndex,
     editingGame,
@@ -162,6 +164,7 @@ function App() {
       launchingGame,
       loading,
       youtubeActive,
+      twitchActive,
       optionsMenuGame,
       optionsMenuSelectedIndex,
       editingGame,
@@ -179,7 +182,7 @@ function App() {
       installedApps,
       searchQuery
     };
-  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, youtubeActive, optionsMenuGame, optionsMenuSelectedIndex, editingGame, customGames, focusArea, headerSelectedIndex, settingsTab, currentTheme, fileExplorerOpen, fileExplorerSelectedIndex, fileExplorerItems, addGameModalOpen, addGameSelectedIndex, detectedSelectedIndex, installedApps, searchQuery]);
+  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, youtubeActive, twitchActive, optionsMenuGame, optionsMenuSelectedIndex, editingGame, customGames, focusArea, headerSelectedIndex, settingsTab, currentTheme, fileExplorerOpen, fileExplorerSelectedIndex, fileExplorerItems, addGameModalOpen, addGameSelectedIndex, detectedSelectedIndex, installedApps, searchQuery]);
 
   const handleOpenYouTube = async () => {
     try {
@@ -199,6 +202,27 @@ function App() {
       console.error(err);
     } finally {
       setYoutubeActive(false);
+    }
+  };
+
+  const handleOpenTwitch = async () => {
+    try {
+      setTwitchActive(true);
+      await invoke("open_twitch_webview");
+    } catch (err) {
+      console.error(err);
+      alert(`Falha ao abrir Twitch: ${err}`);
+      setTwitchActive(false);
+    }
+  };
+
+  const handleCloseTwitch = async () => {
+    try {
+      await invoke("close_twitch_webview");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setTwitchActive(false);
     }
   };
 
@@ -401,9 +425,12 @@ function App() {
 
   // Launch selected game (Steam or Custom)
   const handleLaunchGame = async (game: SteamGame) => {
-    // 1. Fechar o YouTube se estiver aberto para liberar ~180MB de RAM imediatamente
+    // 1. Fechar YouTube e Twitch se estiverem abertos para liberar RAM imediatamente
     if (youtubeActive) {
       await handleCloseYouTube();
+    }
+    if (twitchActive) {
+      await handleCloseTwitch();
     }
 
     setLaunchingGame(game);
@@ -931,6 +958,14 @@ function App() {
         return;
       }
 
+      if (twitchActive) {
+        if (e.key === "Escape" || e.key === "Backspace") {
+          e.preventDefault();
+          handleCloseTwitch();
+        }
+        return;
+      }
+
       if (games.length === 0) {
         // When library is empty, only allow header navigation and hotkeys
         if (e.key === "s" || e.key === "S") {
@@ -941,6 +976,11 @@ function App() {
         if (e.key === "y" || e.key === "Y") {
           e.preventDefault();
           handleOpenYouTube();
+          return;
+        }
+        if (e.key === "t" || e.key === "T") {
+          e.preventDefault();
+          handleOpenTwitch();
           return;
         }
 
@@ -954,14 +994,16 @@ function App() {
         if (focusArea === "header") {
           if (e.key === "ArrowLeft") {
             e.preventDefault();
-            setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 1));
+            setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 2));
           } else if (e.key === "ArrowRight") {
             e.preventDefault();
-            setHeaderSelectedIndex((prev) => (prev < 1 ? prev + 1 : 0));
+            setHeaderSelectedIndex((prev) => (prev < 2 ? prev + 1 : 0));
           } else if (e.key === "Enter") {
             e.preventDefault();
             if (headerSelectedIndex === 0) {
               handleOpenYouTube();
+            } else if (headerSelectedIndex === 1) {
+              handleOpenTwitch();
             } else {
               setSettingsOpen(true);
             }
@@ -990,14 +1032,17 @@ function App() {
         } else if (e.key === "y" || e.key === "Y") {
           e.preventDefault();
           handleOpenYouTube();
+        } else if (e.key === "t" || e.key === "T") {
+          e.preventDefault();
+          handleOpenTwitch();
         }
       } else if (focusArea === "header") {
         if (e.key === "ArrowLeft") {
           e.preventDefault();
-          setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 1));
+          setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 2));
         } else if (e.key === "ArrowRight") {
           e.preventDefault();
-          setHeaderSelectedIndex((prev) => (prev < 1 ? prev + 1 : 0));
+          setHeaderSelectedIndex((prev) => (prev < 2 ? prev + 1 : 0));
         } else if (e.key === "ArrowDown") {
           e.preventDefault();
           setFocusArea("carousel");
@@ -1005,6 +1050,8 @@ function App() {
           e.preventDefault();
           if (headerSelectedIndex === 0) {
             handleOpenYouTube();
+          } else if (headerSelectedIndex === 1) {
+            handleOpenTwitch();
           } else {
             setSettingsOpen(true);
           }
@@ -1017,7 +1064,7 @@ function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, isSimulated, youtubeActive, optionsMenuGame, editingGame, focusArea, headerSelectedIndex]);
+  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, isSimulated, youtubeActive, twitchActive, optionsMenuGame, editingGame, focusArea, headerSelectedIndex]);
 
   // Keyboard navigation for options menu
   useEffect(() => {
@@ -1091,6 +1138,7 @@ function App() {
         launchingGame: isLaunching,
         loading: isLoading,
         youtubeActive: isYoutubeActive,
+        twitchActive: isTwitchActive,
         optionsMenuGame: isOptionsMenuOpen,
         optionsMenuSelectedIndex: selectedOptionIdx,
         editingGame: isEditing,
@@ -1115,6 +1163,29 @@ function App() {
         };
 
         if (actions.start) handleCloseYouTube();
+        else if (actions.up) sendAction("navigate_up");
+        else if (actions.down) sendAction("navigate_down");
+        else if (actions.left) sendAction("navigate_left");
+        else if (actions.right) sendAction("navigate_right");
+        else if (actions.a) sendAction("click");
+        else if (actions.b) sendAction("back");
+        else if (actions.x) sendAction("fullscreen");
+        else if (actions.y) sendAction("play_pause");
+        else if (actions.lb) sendAction("seek_back");
+        else if (actions.rb) sendAction("seek_forward");
+        else if (actions.lt) sendAction("volume_down");
+        else if (actions.rt) sendAction("volume_up");
+        else if (actions.rawAxes.y < -0.6) sendAction("scroll_up");
+        else if (actions.rawAxes.y > 0.6) sendAction("scroll_down");
+        return true;
+      }
+
+      if (isTwitchActive) {
+        const sendAction = (action: string) => {
+          invoke("twitch_gamepad_action", { action }).catch(console.error);
+        };
+
+        if (actions.start) handleCloseTwitch();
         else if (actions.up) sendAction("navigate_up");
         else if (actions.down) sendAction("navigate_down");
         else if (actions.left) sendAction("navigate_left");
@@ -1242,13 +1313,14 @@ function App() {
           }
         } else if (focusArea === "header") {
           if (actions.left) {
-            setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 1));
+            setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 2));
           } else if (actions.right) {
-            setHeaderSelectedIndex((prev) => (prev < 1 ? prev + 1 : 0));
+            setHeaderSelectedIndex((prev) => (prev < 2 ? prev + 1 : 0));
           } else if (actions.down) {
             setFocusArea("carousel");
           } else if (actions.a) {
             if (headerSelectedIndex === 0) handleOpenYouTube();
+            else if (headerSelectedIndex === 1) handleOpenTwitch();
             else setSettingsOpen(true);
           } else if (actions.b) {
             setFocusArea("carousel");
@@ -1425,7 +1497,16 @@ function App() {
                 </svg>
               </button>
               <button
-                className={`ps5-icon-btn ${focusArea === "header" && headerSelectedIndex === 1 ? "focused" : ""}`}
+                className={`ps5-icon-btn twitch-btn ${focusArea === "header" && headerSelectedIndex === 1 ? "focused" : ""}`}
+                onClick={handleOpenTwitch}
+                title="Twitch"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M11.571 4.714h1.715v5.143h-1.715zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/>
+                </svg>
+              </button>
+              <button
+                className={`ps5-icon-btn ${focusArea === "header" && headerSelectedIndex === 2 ? "focused" : ""}`}
                 onClick={() => setSettingsOpen(true)}
                 title="Configurações"
               >
@@ -1459,7 +1540,17 @@ function App() {
                 </svg>
               </button>
               <button
-                className={`header-icon-btn ${focusArea === "header" && headerSelectedIndex === 1 ? "focused" : ""}`}
+                className={`header-icon-btn twitch-btn ${focusArea === "header" && headerSelectedIndex === 1 ? "focused" : ""}`}
+                onClick={handleOpenTwitch}
+                title="Twitch"
+                style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: "0.25rem", transition: "all 0.2s ease" }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M11.571 4.714h1.715v5.143h-1.715zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/>
+                </svg>
+              </button>
+              <button
+                className={`header-icon-btn ${focusArea === "header" && headerSelectedIndex === 2 ? "focused" : ""}`}
                 onClick={() => setSettingsOpen(true)}
                 title="Configurações"
                 style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: "0.25rem", transition: "all 0.2s ease" }}

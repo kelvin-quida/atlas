@@ -756,11 +756,38 @@ input:checked + .slider:before {
   transition: all 0.2s ease;
 }
 
-.youtube-trigger-btn:hover {
+.youtube-trigger-btn:hover,
+.header-icon-btn:hover,
+.header-icon-btn.focused {
   background: rgba(239, 68, 68, 0.25);
   border-color: #ef4444;
   color: #ffffff;
   box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+}
+
+/* Twitch Button styling */
+.twitch-trigger-btn {
+  background: rgba(145, 70, 255, 0.12);
+  border: 1px solid rgba(145, 70, 255, 0.25);
+  color: #c499ff;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.twitch-trigger-btn:hover,
+.twitch-btn:hover,
+.twitch-btn.focused {
+  background: rgba(145, 70, 255, 0.25) !important;
+  border-color: #9146ff !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 12px rgba(145, 70, 255, 0.5) !important;
 }
 
 /* YouTube Header Bar styling */

@@ -811,6 +811,301 @@ async fn open_youtube_webview(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Twitch webview
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TWITCH_TV_INIT_SCRIPT: &str = r#"
+(function() {
+    if (window.__ATLAS_TWITCH_INJECTED) return;
+    window.__ATLAS_TWITCH_INJECTED = true;
+
+    // 1. Inject Clean TV CSS & Single Focus Highlight
+    const injectStyles = () => {
+        const style = document.createElement('style');
+        style.id = 'atlas-twitch-tv-engine';
+        style.textContent = `
+            html {
+                font-size: 100% !important;
+                -webkit-font-smoothing: antialiased !important;
+                -moz-osx-font-smoothing: grayscale !important;
+                text-rendering: optimizeLegibility !important;
+                overflow-x: hidden !important;
+                background-color: #0e0e10 !important;
+            }
+
+            /* Hide Web Banners, Cookie Consent Prompts & Popups */
+            .consent-banner,
+            [data-a-target="cookie-banner"],
+            .tw-banner,
+            #tw-cookie-banner,
+            div[aria-label="Cookie Banner"] {
+                display: none !important;
+            }
+
+            /* Single Active Neon Focus Highlight */
+            .atlas-spatial-focused,
+            a:focus-visible,
+            button:focus-visible,
+            input:focus-visible {
+                outline: 3px solid #9146FF !important;
+                outline-offset: 2px !important;
+                box-shadow: 0 0 18px rgba(145, 70, 255, 0.85) !important;
+                border-radius: 6px !important;
+                z-index: 9999 !important;
+                transition: outline 0.1s ease, box-shadow 0.1s ease !important;
+            }
+        `;
+        if (document.head) document.head.appendChild(style);
+        else document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));
+    };
+    injectStyles();
+
+    // Remove focus highlight class from all elements
+    function clearSpatialFocus() {
+        document.querySelectorAll('.atlas-spatial-focused').forEach(el => {
+            el.classList.remove('atlas-spatial-focused');
+        });
+    }
+
+    // Filter meaningful focusable cards, buttons, links and inputs
+    function getFocusableElements() {
+        const selector = 'a[href], button:not([disabled]), input:not([disabled]), [data-a-target="preview-card-image-link"]';
+        const elements = Array.from(document.querySelectorAll(selector));
+        
+        return elements.filter(el => {
+            const rect = el.getBoundingClientRect();
+            if (rect.width < 12 || rect.height < 12) return false;
+
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+
+            // Avoid nested focus targets inside a parent link
+            let p = el.parentElement;
+            while (p && p !== document.body) {
+                if (p.tagName === 'A' && p !== el) return false;
+                p = p.parentElement;
+            }
+
+            return rect.bottom >= -50 && rect.top <= (window.innerHeight || document.documentElement.clientHeight) + 200;
+        });
+    }
+
+    function moveSpatialFocus(direction) {
+        const focusables = getFocusableElements();
+        if (focusables.length === 0) return;
+
+        let current = document.activeElement;
+        if (!current || current === document.body || !document.body.contains(current) || !current.getBoundingClientRect) {
+            current = focusables[0];
+            if (current) {
+                clearSpatialFocus();
+                current.focus();
+                current.classList.add('atlas-spatial-focused');
+                current.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+            }
+            return;
+        }
+
+        const currentRect = current.getBoundingClientRect();
+        const currentCenter = {
+            x: currentRect.left + currentRect.width / 2,
+            y: currentRect.top + currentRect.height / 2
+        };
+
+        let bestCandidate = null;
+        let minDistance = Infinity;
+
+        focusables.forEach(el => {
+            if (el === current || el.contains(current) || current.contains(el)) return;
+            const rect = el.getBoundingClientRect();
+            const center = {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2
+            };
+
+            const dx = center.x - currentCenter.x;
+            const dy = center.y - currentCenter.y;
+
+            let isValidDirection = false;
+            let weight = 1.0;
+
+            switch (direction) {
+                case 'navigate_up':
+                    isValidDirection = dy < -8;
+                    weight = Math.abs(dx) * 2.2 + Math.abs(dy);
+                    break;
+                case 'navigate_down':
+                    isValidDirection = dy > 8;
+                    weight = Math.abs(dx) * 2.2 + Math.abs(dy);
+                    break;
+                case 'navigate_left':
+                    isValidDirection = dx < -8;
+                    weight = Math.abs(dx) + Math.abs(dy) * 2.2;
+                    break;
+                case 'navigate_right':
+                    isValidDirection = dx > 8;
+                    weight = Math.abs(dx) + Math.abs(dy) * 2.2;
+                    break;
+            }
+
+            if (isValidDirection && weight < minDistance) {
+                minDistance = weight;
+                bestCandidate = el;
+            }
+        });
+
+        clearSpatialFocus();
+
+        if (bestCandidate) {
+            bestCandidate.focus();
+            bestCandidate.classList.add('atlas-spatial-focused');
+            bestCandidate.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+        } else {
+            // Fallback scroll if no candidate in strict vector path
+            if (direction === 'navigate_up') window.scrollBy({ top: -250, behavior: 'smooth' });
+            if (direction === 'navigate_down') window.scrollBy({ top: 250, behavior: 'smooth' });
+            if (direction === 'navigate_left') window.scrollBy({ left: -250, behavior: 'smooth' });
+            if (direction === 'navigate_right') window.scrollBy({ left: 250, behavior: 'smooth' });
+        }
+    }
+
+    function simulateKey(key, code, keyCode) {
+        const target = document.activeElement || document.body;
+        const opts = {
+            key: key, code: code, keyCode: keyCode, which: keyCode,
+            bubbles: true, cancelable: true
+        };
+        target.dispatchEvent(new KeyboardEvent('keydown', opts));
+        target.dispatchEvent(new KeyboardEvent('keyup', opts));
+    }
+
+    window.__ATLAS_TWITCH = function(action) {
+        switch(action) {
+            case 'navigate_up':
+            case 'navigate_down':
+            case 'navigate_left':
+            case 'navigate_right':
+                moveSpatialFocus(action);
+                break;
+
+            case 'click':
+                if (document.activeElement && document.activeElement !== document.body) {
+                    document.activeElement.click();
+                } else {
+                    simulateKey('Enter', 'Enter', 13);
+                }
+                break;
+
+            case 'back':
+                clearSpatialFocus();
+                simulateKey('Escape', 'Escape', 27);
+                history.back();
+                break;
+
+            case 'play_pause':
+                simulateKey(' ', 'Space', 32);
+                const video = document.querySelector('video');
+                if (video) {
+                    if (video.paused) video.play();
+                    else video.pause();
+                }
+                break;
+
+            case 'toggle_chat': {
+                const chatToggleBtn = document.querySelector('[data-a-target="right-column-toggle-button"]') || document.querySelector('button[aria-label*="Chat"]');
+                if (chatToggleBtn) chatToggleBtn.click();
+                break;
+            }
+
+            case 'fullscreen': {
+                const video = document.querySelector('video');
+                if (document.fullscreenElement) {
+                    document.exitFullscreen().catch(() => {});
+                } else if (video && video.requestFullscreen) {
+                    video.requestFullscreen().catch(() => simulateKey('f', 'KeyF', 70));
+                } else {
+                    simulateKey('f', 'KeyF', 70);
+                }
+                break;
+            }
+
+            case 'volume_up': {
+                const v = document.querySelector('video');
+                if (v) v.volume = Math.min(1, v.volume + 0.1);
+                break;
+            }
+
+            case 'volume_down': {
+                const v = document.querySelector('video');
+                if (v) v.volume = Math.max(0, v.volume - 0.1);
+                break;
+            }
+
+            case 'scroll_up':
+                window.scrollBy({ top: -350, behavior: 'smooth' });
+                break;
+
+            case 'scroll_down':
+                window.scrollBy({ top: 350, behavior: 'smooth' });
+                break;
+        }
+    };
+
+    console.log('[Atlas] Twitch Spatial Navigation Refined.');
+})();
+"#;
+
+#[tauri::command]
+async fn open_twitch_webview(app: tauri::AppHandle) -> Result<(), String> {
+    let main_window = app
+        .get_window("main")
+        .ok_or_else(|| "Janela principal não encontrada".to_string())?;
+
+    if app.get_webview("twitch").is_some() {
+        return Ok(());
+    }
+
+    let size = main_window.inner_size().map_err(|e| e.to_string())?;
+
+    let webview_builder = tauri::WebviewBuilder::new(
+        "twitch",
+        tauri::WebviewUrl::External(tauri::Url::parse("https://www.twitch.tv").unwrap()),
+    )
+    .initialization_script(TWITCH_TV_INIT_SCRIPT)
+    .auto_resize();
+
+    main_window
+        .add_child(
+            webview_builder,
+            tauri::PhysicalPosition::new(0, 0),
+            tauri::PhysicalSize::new(size.width, size.height),
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn twitch_gamepad_action(app: tauri::AppHandle, action: String) -> Result<(), String> {
+    if let Some(webview) = app.get_webview("twitch") {
+        let js = format!(
+            "if (window.__ATLAS_TWITCH) {{ window.__ATLAS_TWITCH('{}'); }}",
+            action.replace('\\', "\\\\").replace('\'', "\\'")
+        );
+        webview.eval(&js).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn close_twitch_webview(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(webview) = app.get_webview("twitch") {
+        webview.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn youtube_gamepad_action(app: tauri::AppHandle, action: String) -> Result<(), String> {
     if let Some(webview) = app.get_webview("youtube") {
@@ -890,6 +1185,10 @@ pub fn run() {
                         let _ = youtube.set_position(tauri::PhysicalPosition::new(0, 0));
                         let _ = youtube.set_size(tauri::PhysicalSize::new(size.width, size.height));
                     }
+                    if let Some(twitch) = window.get_webview("twitch") {
+                        let _ = twitch.set_position(tauri::PhysicalPosition::new(0, 0));
+                        let _ = twitch.set_size(tauri::PhysicalSize::new(size.width, size.height));
+                    }
                 }
             }
         })
@@ -918,10 +1217,13 @@ pub fn run() {
             commands::playtime_commands::start_play_session,
             commands::playtime_commands::end_play_session,
             commands::playtime_commands::get_game_playtime,
-            // ── YouTube TV ────────────────────────────────────────────
+            // ── YouTube TV & Twitch ───────────────────────────────────
             open_youtube_webview,
             close_youtube_webview,
             youtube_gamepad_action,
+            open_twitch_webview,
+            close_twitch_webview,
+            twitch_gamepad_action,
             toggle_fullscreen,
         ])
         .run(tauri::generate_context!())
