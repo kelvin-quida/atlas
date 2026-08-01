@@ -463,9 +463,14 @@ body {
 }
 
 .switch input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   opacity: 0;
-  width: 0;
-  height: 0;
+  margin: 0;
+  cursor: pointer;
 }
 
 .slider {
@@ -2045,6 +2050,686 @@ input:checked + .slider:before {
   background: #0082f0;
   box-shadow: 0 6px 20px rgba(0, 114, 206, 0.4);
 }
+
+
+/* Playnite Style Game Editor Modal */
+.playnite-edit-card {
+  width: 750px;
+  max-width: 95vw;
+  background: #1b2028; /* Playnite's dark slate grey background */
+  border: 1px solid #2d3440;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+  border-radius: 6px;
+  padding: 1.5rem;
+  box-sizing: border-box;
+  color: #d1d5db;
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+  height: 600px;
+  animation: scaleUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.playnite-edit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid #2d3440;
+  padding-bottom: 0.5rem;
+}
+
+.playnite-edit-header h2 {
+  margin: 0;
+  font-size: 1.2rem !important;
+  font-weight: 600;
+  color: #f3f4f6;
+  background: none !important;
+  -webkit-background-clip: unset !important;
+  -webkit-text-fill-color: unset !important;
+  border-bottom: none !important;
+  padding-bottom: 0 !important;
+}
+
+.playnite-close-btn {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.playnite-close-btn:hover {
+  color: #ef4444;
+}
+
+.playnite-tabs {
+  display: flex;
+  gap: 2px;
+  background: #15181e;
+  padding: 4px;
+  border-radius: 4px;
+  margin-bottom: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.playnite-tab-btn {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.2s;
+  flex: 1;
+  text-align: center;
+}
+
+.playnite-tab-btn:hover {
+  color: #f3f4f6;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.playnite-tab-btn.active {
+  color: #ffffff;
+  background: #2d3440;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.playnite-edit-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.playnite-tab-content {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.playnite-tab-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.playnite-group {
+  position: relative;
+  border: 1px solid #2d3440;
+  border-radius: 6px;
+  background: #181d24;
+  padding: 1.25rem 1rem 1rem 1rem;
+  margin-top: 0.5rem;
+}
+
+.playnite-group-title {
+  position: absolute;
+  top: -10px;
+  left: 12px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-cyan);
+  background: #1b2028;
+  padding: 0 0.5rem;
+  font-weight: 700;
+}
+
+.playnite-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.playnite-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.playnite-field.full-width {
+  grid-column: span 2;
+}
+
+.playnite-field label {
+  font-size: 0.8rem;
+  color: #9ca3af;
+  font-weight: 600;
+}
+
+.playnite-input-wrapper {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.playnite-input-wrapper input {
+  flex: 1;
+  background: #11141a;
+  border: 1px solid #2d3440;
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  color: #f3f4f6;
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.playnite-input-wrapper input:focus:not([readonly]) {
+  border-color: var(--accent-cyan);
+}
+
+.playnite-input-wrapper input[readonly] {
+  background: #161a22;
+  color: #7f8c9d;
+  cursor: not-allowed;
+  border-color: #222731;
+}
+
+.playnite-input-wrapper input:disabled {
+  background: #161a22;
+  color: #555e6b;
+  cursor: not-allowed;
+  border-color: #222731;
+}
+
+/* Media previews styling */
+.playnite-media-previews {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.playnite-media-preview-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.playnite-media-preview-box.disabled {
+  opacity: 0.45;
+}
+
+.preview-label {
+  font-size: 0.8rem;
+  color: #9ca3af;
+  font-weight: 600;
+  text-align: center;
+}
+
+.preview-image-container {
+  height: 180px;
+  background: #11141a;
+  border: 1px solid #2d3440;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+}
+
+.preview-image-container img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.preview-image-container.placeholder {
+  border-style: dashed;
+}
+
+.preview-placeholder {
+  font-size: 0.8rem;
+  color: #4b5563;
+  text-align: center;
+}
+
+.playnite-edit-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  border-top: 1px solid #2d3440;
+  padding-top: 1rem;
+  margin-top: auto;
+}
+
+/* Spatial Navigation focus highlights inside the Playnite Edit Modal */
+.playnite-edit-card *:focus {
+  outline: none;
+  border-color: var(--accent-cyan) !important;
+  box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.35) !important;
+}
+
+/* Highlight for focused tab buttons */
+.playnite-tab-btn:focus {
+  background: #2d3440 !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 0 2px var(--accent-cyan) !important;
+}
+
+/* Close button custom focus */
+.playnite-close-btn:focus {
+  color: #ef4444 !important;
+  box-shadow: none !important;
+}
+
+/* Primary/Secondary button focus adjustments */
+.playnite-edit-card .btn-primary:focus,
+.playnite-edit-card .btn-secondary:focus {
+  background: var(--accent-cyan) !important;
+  color: #000000 !important;
+  box-shadow: 0 0 0 2px var(--accent-cyan) !important;
+}
+
+/* Readonly fields shouldn't light up as brightly but should show outline to track cursor */
+.playnite-edit-card input[readonly]:focus {
+  border-color: rgba(6, 182, 212, 0.5) !important;
+  box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.15) !important;
+}
+
+/* ── Virtual Keyboard Overlay & Styling ── */
+.virtual-keyboard-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(10px);
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.virtual-keyboard-card {
+  width: 820px;
+  max-width: 95vw;
+  background: rgba(18, 22, 31, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  padding: 1.5rem 1.75rem;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+[data-theme="ps5"] .virtual-keyboard-card {
+  background: rgba(12, 14, 20, 0.96);
+  border-color: rgba(0, 114, 206, 0.3);
+}
+
+.virtual-keyboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.virtual-keyboard-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text-primary);
+}
+
+.virtual-keyboard-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.virtual-keyboard-close-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Input Preview Box */
+.virtual-keyboard-preview-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.virtual-keyboard-preview-input {
+  width: 100%;
+  padding: 0.85rem 2.75rem 0.85rem 1rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.4);
+  border: 2px solid var(--accent-cyan);
+  border-radius: 10px;
+  color: #ffffff;
+  outline: none;
+  box-shadow: 0 0 15px rgba(6, 182, 212, 0.25);
+  transition: border-color 0.2s ease;
+}
+
+[data-theme="ps5"] .virtual-keyboard-preview-input {
+  border-color: #0072CE;
+  box-shadow: 0 0 15px rgba(0, 114, 206, 0.3);
+}
+
+.virtual-keyboard-clear-btn {
+  position: absolute;
+  right: 0.85rem;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.virtual-keyboard-clear-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Keyboard Grid */
+.virtual-keyboard-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.virtual-keyboard-row {
+  display: flex;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+.virtual-keyboard-key {
+  flex: 1;
+  min-width: 42px;
+  height: 48px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.virtual-keyboard-key:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.virtual-keyboard-key.special-key {
+  font-size: 0.85rem;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.virtual-keyboard-key.key-space {
+  flex: 3;
+}
+
+.virtual-keyboard-key.key-enter {
+  flex: 2;
+  background: rgba(6, 182, 212, 0.2);
+  border-color: rgba(6, 182, 212, 0.4);
+  color: var(--accent-cyan);
+}
+
+[data-theme="ps5"] .virtual-keyboard-key.key-enter {
+  background: rgba(0, 114, 206, 0.2);
+  border-color: rgba(0, 114, 206, 0.4);
+  color: #38bdf8;
+}
+
+.virtual-keyboard-key.key-active {
+  background: rgba(6, 182, 212, 0.3) !important;
+  border-color: var(--accent-cyan) !important;
+  color: #ffffff !important;
+}
+
+/* Controller Focus Highlight */
+.virtual-keyboard-key.focused {
+  background: var(--accent-cyan) !important;
+  color: #000000 !important;
+  font-weight: 700;
+  transform: scale(1.07);
+  box-shadow: 0 0 16px var(--accent-cyan);
+  border-color: var(--accent-cyan) !important;
+  z-index: 2;
+}
+
+[data-theme="ps5"] .virtual-keyboard-key.focused {
+  background: #0072CE !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 18px #0072CE;
+  border-color: #0072CE !important;
+}
+
+/* Footer Hints */
+.virtual-keyboard-hints {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.hint-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.btn-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 11px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+
+.btn-badge.a { background: #22c55e; color: #000; }
+.btn-badge.b { background: #ef4444; color: #fff; }
+.btn-badge.x { background: #3b82f6; color: #fff; }
+.btn-badge.y { background: #eab308; color: #000; }
+.btn-badge.lb, .btn-badge.rb { background: rgba(255, 255, 255, 0.25); color: #fff; }
+.btn-badge.start { background: #8b5cf6; color: #fff; }
+
+/* ── File Explorer Drive Selector Bar ── */
+.file-explorer-header-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.drive-selector-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.75rem;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+
+.drive-selector-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-right: 0.25rem;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.drive-pill {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: var(--text-primary);
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.drive-pill:hover,
+.drive-pill:focus,
+.drive-pill.focused {
+  background: var(--accent-cyan) !important;
+  color: #000000 !important;
+  border-color: var(--accent-cyan) !important;
+  box-shadow: 0 0 12px var(--accent-cyan) !important;
+  transform: scale(1.04);
+  outline: none;
+}
+
+[data-theme="ps5"] .drive-pill:hover,
+[data-theme="ps5"] .drive-pill:focus,
+[data-theme="ps5"] .drive-pill.focused {
+  background: #0072CE !important;
+  color: #ffffff !important;
+  border-color: #0072CE !important;
+  box-shadow: 0 0 14px #0072CE !important;
+}
+
+.drive-pill.active {
+  background: rgba(6, 182, 212, 0.25);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+[data-theme="ps5"] .drive-pill.active {
+  background: rgba(0, 114, 206, 0.25);
+  border-color: #0072CE;
+  color: #38bdf8;
+}
+
+/* ── Disk Filter Chips (Pills) Bar ── */
+.disk-filter-chips-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.disk-filter-pill {
+  background: rgba(45, 42, 58, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  color: #ffffff;
+  padding: 0.5rem 1.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.disk-filter-pill:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+}
+
+.disk-filter-pill:focus,
+.disk-filter-pill.focused {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-cyan), 0 0 16px var(--accent-cyan);
+  border-color: var(--accent-cyan) !important;
+  transform: scale(1.05);
+}
+
+[data-theme="ps5"] .disk-filter-pill:focus,
+[data-theme="ps5"] .disk-filter-pill.focused {
+  box-shadow: 0 0 0 2px #0072CE, 0 0 16px #0072CE;
+  border-color: #0072CE !important;
+}
+
+.disk-filter-pill.active {
+  background: var(--accent-cyan) !important;
+  color: #000000 !important;
+  border-color: var(--accent-cyan) !important;
+  font-weight: 700;
+  box-shadow: 0 0 14px rgba(6, 182, 212, 0.4);
+}
+
+
+
+/* ==========================================
+   GLOBAL GAMEPAD SPATIAL FOCUS & HUD STYLES
+   ========================================== */
+
+.gamepad-focused {
+  outline: none !important;
+  box-shadow: 0 0 0 2px var(--accent-cyan), 0 0 20px rgba(6, 182, 212, 0.6) !important;
+  border-color: var(--accent-cyan) !important;
+  transform: scale(1.03);
+  transition: transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.15s ease !important;
+  z-index: 10;
+}
+
+[data-theme="ps5"] .gamepad-focused {
+  box-shadow: 0 0 0 2px #0072CE, 0 0 22px rgba(0, 114, 206, 0.7) !important;
+  border-color: #0072CE !important;
+}
+
+.virtual-keyboard-key.gamepad-focused {
+  background: var(--accent-cyan) !important;
+  color: #000000 !important;
+  transform: scale(1.1) !important;
+  box-shadow: 0 0 16px var(--accent-cyan) !important;
+  font-weight: 700 !important;
+}
+
+[data-theme="ps5"] .virtual-keyboard-key.gamepad-focused {
+  background: #0072CE !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 16px #0072CE !important;
+}
+
+
+
+
 
 
 
