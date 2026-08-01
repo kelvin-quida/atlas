@@ -112,6 +112,7 @@ pub async fn create_game(
         steam_app_id: input.steam_app_id,
         igdb_id: None,
         cover_url: resolve_cover_url(cover_path, app_data_dir),
+        background_url: None,
         last_played: None,
         added_at: now,
     })
@@ -135,6 +136,10 @@ pub async fn list_games(
                 .iter()
                 .find(|a| a.asset_type == "cover")
                 .map(|a| a.file_path.clone());
+            let background = assets
+                .iter()
+                .find(|a| a.asset_type == "background")
+                .map(|a| a.file_path.clone());
             GameDto {
                 id: g.id,
                 name: g.name,
@@ -144,6 +149,7 @@ pub async fn list_games(
                 steam_app_id: g.steam_app_id,
                 igdb_id: g.igdb_id,
                 cover_url: resolve_cover_url(cover, app_data_dir),
+                background_url: resolve_cover_url(background, app_data_dir),
                 last_played: g.last_played,
                 added_at: g.added_at,
             }
@@ -162,13 +168,14 @@ pub async fn delete_game(db: &DatabaseConnection, game_id: &str) -> Result<(), S
     Ok(())
 }
 
-/// Updates name, exe_path, and cover URL for a game.
+/// Updates name, exe_path, cover URL, and background URL for a game.
 pub async fn update_game(
     db: &DatabaseConnection,
     game_id: &str,
     name: Option<String>,
     exe_path: Option<String>,
     cover_url: Option<String>,
+    background_url: Option<String>,
     app_data_dir: &std::path::Path,
 ) -> Result<GameDto, String> {
     let existing = game::Entity::find_by_id(game_id)
@@ -246,6 +253,60 @@ pub async fn update_game(
             .map(|a| a.file_path)
     };
 
+    // Handle background update
+    let bg_path = if let Some(ref url) = background_url {
+        // Remove old background asset
+        image_asset::Entity::delete_many()
+            .filter(
+                Condition::all()
+                    .add(image_asset::Column::GameId.eq(game_id))
+                    .add(image_asset::Column::AssetType.eq("background")),
+            )
+            .exec(db)
+            .await
+            .ok();
+
+        match crate::services::image_service::download_background(game_id, url, app_data_dir).await {
+            Ok(rel_path) => {
+                let asset = image_asset::ActiveModel {
+                    id: sea_orm::ActiveValue::NotSet,
+                    game_id: Set(game_id.to_string()),
+                    asset_type: Set("background".to_string()),
+                    file_path: Set(rel_path.clone()),
+                    source_url: Set(Some(url.clone())),
+                    downloaded_at: Set(Utc::now().to_rfc3339()),
+                };
+                let _ = asset.insert(db).await;
+                Some(rel_path)
+            }
+            Err(_) => {
+                let asset = image_asset::ActiveModel {
+                    id: sea_orm::ActiveValue::NotSet,
+                    game_id: Set(game_id.to_string()),
+                    asset_type: Set("background".to_string()),
+                    file_path: Set(url.clone()),
+                    source_url: Set(Some(url.clone())),
+                    downloaded_at: Set(Utc::now().to_rfc3339()),
+                };
+                let _ = asset.insert(db).await;
+                Some(url.clone())
+            }
+        }
+    } else {
+        // Return existing background path
+        image_asset::Entity::find()
+            .filter(
+                Condition::all()
+                    .add(image_asset::Column::GameId.eq(game_id))
+                    .add(image_asset::Column::AssetType.eq("background")),
+            )
+            .one(db)
+            .await
+            .ok()
+            .flatten()
+            .map(|a| a.file_path)
+    };
+
     Ok(GameDto {
         id: model.id,
         name: model.name,
@@ -255,6 +316,7 @@ pub async fn update_game(
         steam_app_id: model.steam_app_id,
         igdb_id: model.igdb_id,
         cover_url: resolve_cover_url(cover_path, app_data_dir),
+        background_url: resolve_cover_url(bg_path, app_data_dir),
         last_played: model.last_played,
         added_at: model.added_at,
     })

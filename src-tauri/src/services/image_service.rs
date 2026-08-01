@@ -55,6 +55,57 @@ pub async fn download_cover(
     Ok(format!("assets/covers/{}", filename))
 }
 
+/// Downloads a background image from `url` and saves it to `app_data_dir/assets/backgrounds/{game_id}.jpg`.
+/// Returns relative path `assets/backgrounds/{game_id}.jpg` on success.
+pub async fn download_background(
+    game_id: &str,
+    url: &str,
+    app_data_dir: &Path,
+) -> Result<String, String> {
+    let bg_dir = app_data_dir.join("assets").join("backgrounds");
+    fs::create_dir_all(&bg_dir)
+        .await
+        .map_err(|e| format!("Failed to create backgrounds dir: {}", e))?;
+
+    let resolved_url = if url.starts_with("//") {
+        format!("https:{}", url)
+    } else {
+        url.to_string()
+    };
+
+    let client = Client::new();
+    let response = client
+        .get(&resolved_url)
+        .send()
+        .await
+        .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("HTTP {} for {}", response.status(), resolved_url));
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read response bytes: {}", e))?;
+
+    let ext = resolved_url
+        .split('?')
+        .next()
+        .and_then(|p| p.rsplit('.').next())
+        .filter(|e| ["jpg", "jpeg", "png", "webp"].contains(e))
+        .unwrap_or("jpg");
+
+    let filename = format!("{}.{}", game_id, ext);
+    let file_path = bg_dir.join(&filename);
+
+    fs::write(&file_path, &bytes)
+        .await
+        .map_err(|e| format!("Failed to write background file: {}", e))?;
+
+    Ok(format!("assets/backgrounds/{}", filename))
+}
+
 /// Returns the absolute path for a cover if it exists on disk.
 pub fn get_local_cover_path(game_id: &str, app_data_dir: &Path) -> Option<std::path::PathBuf> {
     let covers_dir = app_data_dir.join("assets").join("covers");
@@ -77,3 +128,130 @@ pub async fn delete_cover(game_id: &str, app_data_dir: &Path) {
         }
     }
 }
+
+#[derive(serde::Deserialize)]
+struct DdgImageItem {
+    image: Option<String>,
+    thumbnail: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct DdgResponse {
+    results: Option<Vec<DdgImageItem>>,
+}
+
+fn extract_bing_images(html: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+    
+    // Look for murl&quot;:&quot;... or murl":"...
+    for key in &["murl&quot;:&quot;", "murl\":\""] {
+        let mut cursor = html;
+        while let Some(idx) = cursor.find(key) {
+            let rest = &cursor[idx + key.len()..];
+            let end = rest.find(|c: char| c == '&' || c == '"' || c == '\'' || c.is_whitespace())
+                .unwrap_or(rest.len());
+            if end > 0 {
+                let raw_url = &rest[..end];
+                let clean_url = raw_url.replace("&amp;", "&").replace("%20", " ");
+                if (clean_url.starts_with("http://") || clean_url.starts_with("https://")) && !urls.contains(&clean_url) {
+                    urls.push(clean_url);
+                }
+            }
+            cursor = &rest[end..];
+        }
+    }
+
+    urls
+}
+
+fn extract_vqd(html: &str) -> Option<String> {
+    for pattern in &["vqd=\"", "vqd='", "vqd=", "vqd: \"", "vqd: '"] {
+        if let Some(idx) = html.find(pattern) {
+            let rest = &html[idx + pattern.len()..];
+            let end = rest.find(|c: char| c == '"' || c == '\'' || c == '&' || c == ';' || c.is_whitespace())
+                .unwrap_or(rest.len());
+            if end > 0 {
+                return Some(rest[..end].to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Searches Bing Images and DuckDuckGo for candidate images corresponding to `query`.
+/// Returns a list of image URLs.
+pub async fn search_images(query: &str) -> Result<Vec<String>, String> {
+    let client = Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
+        .build()
+        .map_err(|e| format!("Client creation error: {}", e))?;
+
+    let mut urls = Vec::new();
+
+    // 1. Try Bing Images Async endpoint (Fast & High Quality)
+    let bing_url = reqwest::Url::parse_with_params(
+        "https://www.bing.com/images/async",
+        &[("q", query), ("first", "1"), ("count", "35")],
+    );
+    if let Ok(u) = bing_url {
+        if let Ok(res) = client.get(u).send().await {
+            if let Ok(html) = res.text().await {
+                let bing_results = extract_bing_images(&html);
+                for img in bing_results {
+                    if !urls.contains(&img) {
+                        urls.push(img);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Try DuckDuckGo Images if Bing returned fewer than 10 images
+    if urls.len() < 10 {
+        let init_url = reqwest::Url::parse_with_params(
+            "https://duckduckgo.com/",
+            &[("q", query), ("iax", "images"), ("ia", "images")],
+        );
+        if let Ok(u) = init_url {
+            if let Ok(res) = client.get(u).send().await {
+                if let Ok(html) = res.text().await {
+                    if let Some(vqd) = extract_vqd(&html) {
+                        let api_url = reqwest::Url::parse_with_params(
+                            "https://duckduckgo.com/i.js",
+                            &[
+                                ("l", "us-en"),
+                                ("o", "json"),
+                                ("q", query),
+                                ("vqd", &vqd),
+                                ("f", ",,,"),
+                                ("p", "1"),
+                            ],
+                        );
+                        if let Ok(api_u) = api_url {
+                            if let Ok(api_res) = client.get(api_u).header("Referer", "https://duckduckgo.com/").send().await {
+                                if let Ok(data) = api_res.json::<DdgResponse>().await {
+                                    if let Some(results) = data.results {
+                                        for item in results {
+                                            if let Some(img) = item.image {
+                                                if (img.starts_with("http://") || img.starts_with("https://")) && !urls.contains(&img) {
+                                                    urls.push(img);
+                                                }
+                                            } else if let Some(thumb) = item.thumbnail {
+                                                if (thumb.starts_with("http://") || thumb.starts_with("https://")) && !urls.contains(&thumb) {
+                                                    urls.push(thumb);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(urls)
+}
+

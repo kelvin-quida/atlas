@@ -53,9 +53,10 @@ pub async fn db_update_game(
     name: Option<String>,
     exe_path: Option<String>,
     cover_url: Option<String>,
+    background_url: Option<String>,
 ) -> Result<GameDto, String> {
     let db = &state.db;
-    game_service::update_game(db, &game_id, name, exe_path, cover_url, &state.app_data_dir).await
+    game_service::update_game(db, &game_id, name, exe_path, cover_url, background_url, &state.app_data_dir).await
 }
 
 /// Migrates legacy games from localStorage format into SQLite.
@@ -113,3 +114,10 @@ pub struct LegacyGame {
     pub is_custom: Option<bool>,
     pub exe_path: Option<String>,
 }
+
+/// Searches for candidate images (cover/background) in background based on search query.
+#[tauri::command]
+pub async fn search_game_images(query: String) -> Result<Vec<String>, String> {
+    crate::services::image_service::search_images(&query).await
+}
+

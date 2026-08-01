@@ -12,6 +12,7 @@ interface SteamGame {
   installdir: string;
   library_path: string;
   image_url: string;   // maps to GameDto.cover_url
+  bg_url?: string;     // maps to background image
   isCustom?: boolean;
   exe_path?: string;
   last_played?: string;
@@ -28,6 +29,7 @@ interface GameDto {
   steam_app_id?: string;
   igdb_id?: number;
   cover_url?: string;
+  background_url?: string;
   last_played?: string;
   added_at: string;
 }
@@ -40,6 +42,7 @@ function gameDtoToSteamGame(dto: GameDto): SteamGame {
     installdir: dto.install_dir ?? "",
     library_path: "",
     image_url: dto.cover_url ?? "",
+    bg_url: dto.background_url ?? "",
     isCustom: dto.platform === "manual",
     exe_path: dto.exe_path,
     last_played: dto.last_played,
@@ -94,8 +97,14 @@ function App() {
 
   // Update ambient background when detail page opens
   useEffect(() => {
-    if (activeDetailGame && activeDetailGame.image_url) {
-      setAmbientBgUrl(getGameImageUrl(activeDetailGame));
+    if (activeDetailGame) {
+      const bg = activeDetailGame.bg_url || activeDetailGame.image_url;
+      if (bg) {
+        const bgUrl = bg.startsWith("http://") || bg.startsWith("https://") || bg.startsWith("data:")
+          ? bg
+          : convertFileSrc(bg);
+        setAmbientBgUrl(bgUrl);
+      }
     }
   }, [activeDetailGame]);
 
@@ -110,7 +119,16 @@ function App() {
   const [editName, setEditName] = useState("");
   const [editExe, setEditExe] = useState("");
   const [editImg, setEditImg] = useState("");
+  const [editBg, setEditBg] = useState("");
   const [editTab, setEditTab] = useState<"general" | "advanced" | "media">("general");
+
+  // States for background image picker gallery modal
+  const [imagePickerOpen, setImagePickerOpen] = useState(false);
+  const [imagePickerTarget, setImagePickerTarget] = useState<"cover" | "background">("cover");
+  const [imagePickerLoading, setImagePickerLoading] = useState(false);
+  const [imagePickerQuery, setImagePickerQuery] = useState("");
+  const [imagePickerResults, setImagePickerResults] = useState<string[]>([]);
+  const [imagePickerSelectedIndex, setImagePickerSelectedIndex] = useState(0);
 
   // States for header focus and navigation
   const [focusArea, setFocusArea] = useState<"carousel" | "header">("carousel");
@@ -431,7 +449,11 @@ function App() {
     }
 
     let bgUrl = "";
-    if (activeGame.image_url) {
+    if (activeGame.bg_url) {
+      bgUrl = activeGame.bg_url.startsWith("http://") || activeGame.bg_url.startsWith("https://") || activeGame.bg_url.startsWith("data:")
+        ? activeGame.bg_url
+        : convertFileSrc(activeGame.bg_url);
+    } else if (activeGame.image_url) {
       if (!activeGame.isCustom) {
         // Use Steam's landscape header image: much smaller and loads instantly
         bgUrl = `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${activeGame.appid}/header.jpg`;
@@ -547,6 +569,7 @@ function App() {
       setEditName(game.name);
       setEditExe(game.exe_path || "");
       setEditImg(game.image_url || "");
+      setEditBg(game.bg_url || "");
       setEditTab("general");
       setEditingGame(game);
       setOptionsMenuGame(null);
@@ -707,11 +730,6 @@ function App() {
     });
   };
 
-  const handleEditPickImg = () => {
-    openFileExplorer(["png", "jpg", "jpeg", "webp"], (path) => {
-      setEditImg(path);
-    });
-  };
 
   const handleAddCustomGameSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -788,6 +806,7 @@ function App() {
         name: editName,
         exePath: editExe,
         coverUrl: resolvedImg,
+        backgroundUrl: editBg || null,
       });
       const updated = gameDtoToSteamGame(dto);
       setCustomGames((prev) =>
@@ -802,23 +821,55 @@ function App() {
     setEditingSearchingIgdb(false);
   };
 
-
-
-  const handleSearchIgdbForEdit = async () => {
+  // Helper functions for Background Image Picker Gallery Modal
+  const handleOpenImagePicker = async (target: "cover" | "background") => {
     if (!editName) {
-      alert("Por favor, digite o nome do jogo primeiro.");
+      alert("Por favor, informe o nome do jogo na aba Geral antes de buscar imagens.");
       return;
     }
-    setEditingSearchingIgdb(true);
+    setImagePickerTarget(target);
+    const defaultQuery = target === "cover" ? `${editName} cover` : `${editName} background`;
+    setImagePickerQuery(defaultQuery);
+    setImagePickerOpen(true);
+    setImagePickerLoading(true);
+    setImagePickerResults([]);
+    setImagePickerSelectedIndex(0);
+
     try {
-      const url = await invoke<string>("get_game_image_url", { gameName: editName });
-      setEditImg(url);
+      const urls = await invoke<string[]>("search_game_images", { query: defaultQuery });
+      setImagePickerResults(urls);
     } catch (err) {
-      alert(`Não foi possível encontrar a imagem para "${editName}" no IGDB: ${err}`);
+      console.error("Erro ao buscar imagens em background:", err);
+      setImagePickerResults([]);
     } finally {
-      setEditingSearchingIgdb(false);
+      setImagePickerLoading(false);
     }
   };
+
+  const handlePerformImageSearch = async (customQuery?: string) => {
+    const queryToUse = customQuery !== undefined ? customQuery : imagePickerQuery;
+    if (!queryToUse.trim()) return;
+    setImagePickerLoading(true);
+    setImagePickerSelectedIndex(0);
+    try {
+      const urls = await invoke<string[]>("search_game_images", { query: queryToUse });
+      setImagePickerResults(urls);
+    } catch (err) {
+      console.error("Erro ao buscar imagens:", err);
+    } finally {
+      setImagePickerLoading(false);
+    }
+  };
+
+  const handleSelectImage = (url: string) => {
+    if (imagePickerTarget === "cover") {
+      setEditImg(url);
+    } else {
+      setEditBg(url);
+    }
+    setImagePickerOpen(false);
+  };
+
 
 
   // Refs for scrolling container
@@ -1656,9 +1707,11 @@ function App() {
         <main className="console-content">
           {currentTheme === "atlas" && activeDetailGame ? (
             <div className="atlas-game-detail-view">
+              {/* Top Navigation Bar */}
               <div className="atlas-detail-topbar">
                 <button
-                  className={`atlas-detail-back-btn ${detailSelectedIndex === 2 ? "focused" : ""}`}
+                  tabIndex={0}
+                  className={`atlas-detail-back-btn focusable ${detailSelectedIndex === 2 ? "focused" : ""}`}
                   onClick={() => setActiveDetailGame(null)}
                   onMouseEnter={() => setDetailSelectedIndex(2)}
                 >
@@ -1671,82 +1724,43 @@ function App() {
                 </button>
               </div>
 
-              <div className="atlas-detail-hero">
-                <div className="atlas-detail-left-col">
-                  <div className="atlas-detail-cover-wrapper">
-                    {imageErrors[activeDetailGame.appid] || !activeDetailGame.image_url ? (
-                      <div className="atlas-detail-cover-placeholder" style={{ background: getGradientBg(activeDetailGame.name) }}>
-                        <div className="placeholder-tag">{activeDetailGame.isCustom ? "Custom" : "Steam"}</div>
-                        <div className="placeholder-text">{activeDetailGame.name}</div>
-                      </div>
-                    ) : (
-                      <img
-                        src={getGameImageUrl(activeDetailGame)}
-                        alt={activeDetailGame.name}
-                        className="atlas-detail-cover-img"
-                        onError={() => handleImageError(activeDetailGame.appid)}
-                      />
-                    )}
-                    <div className="atlas-detail-cover-glow"></div>
-                  </div>
-                </div>
-
-                <div className="atlas-detail-right-col">
-                  <div className="atlas-detail-header-info">
-                    <div className="atlas-detail-platform-badge">
-                      <span className="badge-icon">🎮</span>
-                      <span>{activeDetailGame.isCustom ? "Jogo Personalizado (PC)" : "Steam Library"}</span>
-                    </div>
-                    <h1 className="atlas-detail-title">{activeDetailGame.name}</h1>
-                    <p className="atlas-detail-path-info">
-                      {activeDetailGame.isCustom
-                        ? `Executável: ${activeDetailGame.exe_path || "Não especificado"}`
-                        : `Steam App ID: ${activeDetailGame.appid}`}
-                    </p>
+              {/* Hero Header Banner Card */}
+              <div className="atlas-detail-hero-banner">
+                <div className="atlas-hero-main-info">
+                  <div className="atlas-hero-badges">
+                    <span className="platform-badge">
+                      🎮 {activeDetailGame.isCustom ? "Jogo Personalizado (PC)" : "Biblioteca Steam"}
+                    </span>
+                    <span className="status-badge">
+                      <span className="status-dot"></span> Pronto para Jogar
+                    </span>
                   </div>
 
-                  <div className="atlas-detail-stats-grid">
-                    <div className="atlas-stat-card">
-                      <div className="stat-icon">⏱️</div>
-                      <div className="stat-content">
-                        <span className="stat-label">Tempo Jogado</span>
-                        <span className="stat-value">{playtimes[activeDetailGame.appid]?.formatted || "< 1m"}</span>
-                      </div>
-                    </div>
+                  <h1 className="atlas-hero-title">{activeDetailGame.name}</h1>
 
-                    <div className="atlas-stat-card">
-                      <div className="stat-icon">📅</div>
-                      <div className="stat-content">
-                        <span className="stat-label">Último Acesso</span>
-                        <span className="stat-value">
-                          {activeDetailGame.last_played ? new Date(activeDetailGame.last_played).toLocaleDateString() : "Nunca"}
-                        </span>
-                      </div>
-                    </div>
+                  <p className="atlas-hero-subtitle">
+                    {activeDetailGame.isCustom
+                      ? `Atalho local executável • ${activeDetailGame.exe_path || "Pasta do sistema"}`
+                      : `Steam App ID: ${activeDetailGame.appid} • Sincronizado`}
+                  </p>
 
-                    <div className="atlas-stat-card">
-                      <div className="stat-icon">⚡</div>
-                      <div className="stat-content">
-                        <span className="stat-label">Status</span>
-                        <span className="stat-value status-ready">Pronto para Jogar</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="atlas-detail-actions-row">
+                  {/* Hero Actions Row */}
+                  <div className="atlas-hero-actions-row">
                     <button
-                      className={`atlas-detail-play-btn ${detailSelectedIndex === 0 ? "focused" : ""}`}
+                      tabIndex={0}
+                      className={`atlas-detail-play-btn focusable ${detailSelectedIndex === 0 ? "focused" : ""}`}
                       onClick={() => handleTryLaunchGame(activeDetailGame)}
                       onMouseEnter={() => setDetailSelectedIndex(0)}
                     >
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M8 5v14l11-7z" />
                       </svg>
-                      <span>Jogar</span>
+                      <span>Iniciar Jogo</span>
                     </button>
 
                     <button
-                      className={`atlas-detail-options-btn ${detailSelectedIndex === 1 ? "focused" : ""}`}
+                      tabIndex={0}
+                      className={`atlas-detail-options-btn focusable ${detailSelectedIndex === 1 ? "focused" : ""}`}
                       onClick={() => setOptionsMenuGame(activeDetailGame)}
                       onMouseEnter={() => setDetailSelectedIndex(1)}
                     >
@@ -1754,8 +1768,168 @@ function App() {
                         <circle cx="12" cy="12" r="3" />
                         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
                       </svg>
-                      <span>Opções</span>
+                      <span>Opções & Mídia</span>
                     </button>
+                  </div>
+                </div>
+
+                {/* Metrics Ribbon */}
+                <div className="atlas-metrics-ribbon">
+                  <div className="metric-pill">
+                    <span className="metric-icon">⏱️</span>
+                    <div className="metric-info">
+                      <span className="metric-label">Tempo Jogado</span>
+                      <span className="metric-value">{playtimes[activeDetailGame.appid]?.formatted || "< 1 minuto"}</span>
+                    </div>
+                  </div>
+
+                  <div className="metric-pill">
+                    <span className="metric-icon">📅</span>
+                    <div className="metric-info">
+                      <span className="metric-label">Última Vez Jogado</span>
+                      <span className="metric-value">
+                        {activeDetailGame.last_played ? new Date(activeDetailGame.last_played).toLocaleDateString() : "Nunca jogado"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="metric-pill">
+                    <span className="metric-icon">☁️</span>
+                    <div className="metric-info">
+                      <span className="metric-label">Nuvem & Salvamentos</span>
+                      <span className="metric-value text-cyan">Sincronizado</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Content Grid (2 Columns) */}
+              <div className="atlas-detail-content-grid">
+                {/* Left Column: Media Gallery & Installation Info */}
+                <div className="atlas-detail-main-col">
+                  {/* Media Gallery Showcase */}
+                  <div className="atlas-card media-showcase-card">
+                    <div className="atlas-card-header">
+                      <h3 className="atlas-card-title">Arquivos de Mídia</h3>
+                      <button
+                        tabIndex={0}
+                        className="atlas-card-action-btn focusable"
+                        onClick={() => {
+                          setEditName(activeDetailGame.name);
+                          setEditExe(activeDetailGame.exe_path || "");
+                          setEditImg(activeDetailGame.image_url || "");
+                          setEditBg(activeDetailGame.bg_url || "");
+                          setEditTab("media");
+                          setEditingGame(activeDetailGame);
+                        }}
+                      >
+                        ✏️ Editar Mídias
+                      </button>
+                    </div>
+
+                    <div className="media-showcase-grid">
+                      <div className="media-item-box cover-box">
+                        <span className="media-item-label">Capa Oficial</span>
+                        <div className="media-item-img-container">
+                          {activeDetailGame.image_url ? (
+                            <img src={getGameImageUrl(activeDetailGame)} alt="Capa" />
+                          ) : (
+                            <div className="media-placeholder">Sem Capa</div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="media-item-box bg-box">
+                        <span className="media-item-label">Background / Hero Banner</span>
+                        <div className="media-item-img-container">
+                          {activeDetailGame.bg_url ? (
+                            <img
+                              src={
+                                activeDetailGame.bg_url.startsWith("http") || activeDetailGame.bg_url.startsWith("data:")
+                                  ? activeDetailGame.bg_url
+                                  : convertFileSrc(activeDetailGame.bg_url)
+                              }
+                              alt="Background"
+                            />
+                          ) : (
+                            <div className="media-placeholder">Sem Background</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Installation & Execution Card */}
+                  <div className="atlas-card install-info-card">
+                    <div className="atlas-card-header">
+                      <h3 className="atlas-card-title">Informações do Sistema & Instalação</h3>
+                    </div>
+                    <div className="install-info-list">
+                      <div className="info-row">
+                        <span className="info-key">Executável do Jogo:</span>
+                        <span className="info-val" title={activeDetailGame.exe_path || "Padrão do Sistema"}>
+                          {activeDetailGame.exe_path || "Executável Padrão do Sistema"}
+                        </span>
+                      </div>
+                      <div className="info-row">
+                        <span className="info-key">Plataforma / Origem:</span>
+                        <span className="info-val">{activeDetailGame.isCustom ? "Atalho Personalizado (PC)" : "Biblioteca Steam"}</span>
+                      </div>
+                      <div className="info-row">
+                        <span className="info-key">ID do Registro:</span>
+                        <span className="info-val">{activeDetailGame.appid}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column: How Long To Beat & Stats Sidebar */}
+                <div className="atlas-detail-side-col">
+                  {/* How Long To Beat Widget */}
+                  <div className="atlas-card hltb-card">
+                    <div className="atlas-card-header">
+                      <h3 className="atlas-card-title">How Long To Beat (Estimativa)</h3>
+                    </div>
+                    <div className="hltb-grid">
+                      <div className="hltb-item">
+                        <div className="hltb-icon">⏱️</div>
+                        <div className="hltb-val">12½h</div>
+                        <div className="hltb-label">História Principal</div>
+                      </div>
+                      <div className="hltb-item">
+                        <div className="hltb-icon">⏱️</div>
+                        <div className="hltb-val">24h</div>
+                        <div className="hltb-label">Principal + Extras</div>
+                      </div>
+                      <div className="hltb-item">
+                        <div className="hltb-icon">🏆</div>
+                        <div className="hltb-val">50h</div>
+                        <div className="hltb-label">100% Completo</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Game Stats Widget */}
+                  <div className="atlas-card stats-card">
+                    <div className="atlas-card-header">
+                      <h3 className="atlas-card-title">Estatísticas do Jogo</h3>
+                    </div>
+                    <div className="stats-list">
+                      <div className="stat-row">
+                        <span className="stat-name">Avaliação Geral</span>
+                        <span className="stat-score">★ 4.8 / 5</span>
+                      </div>
+                      <div className="stat-row">
+                        <span className="stat-name">Comunidade Ativa</span>
+                        <span className="stat-score">+120.4K Jogadores</span>
+                      </div>
+                      <div className="stat-row">
+                        <span className="stat-name">Data de Adição</span>
+                        <span className="stat-score">
+                          {activeDetailGame.added_at ? new Date(activeDetailGame.added_at).toLocaleDateString() : "Recente"}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2328,34 +2502,25 @@ function App() {
                 <div className="playnite-tab-pane">
                   <div className="playnite-group">
                     <div className="playnite-group-title">Arquivos de Mídia</div>
-                    <div className="playnite-form-grid">
-                      <div className="playnite-field full-width">
-                        <label>Imagem da Capa (Local ou URL)</label>
-                        <div className="playnite-input-wrapper">
-                          <input
-                            type="text"
-                            placeholder="Caminho da imagem local ou URL da capa"
-                            value={editImg}
-                            onChange={(e) => setEditImg(e.target.value)}
-                          />
-                          <button type="button" className="btn-secondary" onClick={handleEditPickImg}>
-                            Buscar
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-secondary"
-                            onClick={handleSearchIgdbForEdit}
-                            disabled={editingSearchingIgdb}
-                          >
-                            {editingSearchingIgdb ? "Buscando..." : "IGDB"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+                    <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: "1.25rem" }}>
+                      Clique em um dos cartões de mídia abaixo para buscar e escolher imagens na internet em segundo plano.
+                    </p>
 
                     <div className="playnite-media-previews">
-                      <div className="playnite-media-preview-box">
-                        <span className="preview-label">Visualização Capa</span>
+                      <div
+                        tabIndex={0}
+                        role="button"
+                        className="playnite-media-preview-box clickable focusable"
+                        onClick={() => handleOpenImagePicker("cover")}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            handleOpenImagePicker("cover");
+                          }
+                        }}
+                        title="Clique ou pressione Enter para buscar capas para este jogo"
+                      >
+                        <span className="preview-label">Visualização Capa 🔍</span>
                         <div className="preview-image-container">
                           {editImg ? (
                             <img
@@ -2366,22 +2531,39 @@ function App() {
                               }}
                             />
                           ) : (
-                            <div className="preview-placeholder">Sem Capa</div>
+                            <div className="preview-placeholder">Clique para Buscar Capa</div>
                           )}
+                          <div className="preview-overlay-badge">Alterar Capa</div>
                         </div>
                       </div>
 
-                      <div className="playnite-media-preview-box disabled">
-                        <span className="preview-label">Background (Indisponível)</span>
-                        <div className="preview-image-container placeholder">
-                          <div className="preview-placeholder">Sem Imagem</div>
-                        </div>
-                      </div>
-
-                      <div className="playnite-media-preview-box disabled">
-                        <span className="preview-label">Ícone (Indisponível)</span>
-                        <div className="preview-image-container placeholder icon">
-                          <div className="preview-placeholder">Sem Ícone</div>
+                      <div
+                        tabIndex={0}
+                        role="button"
+                        className="playnite-media-preview-box clickable focusable"
+                        onClick={() => handleOpenImagePicker("background")}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            handleOpenImagePicker("background");
+                          }
+                        }}
+                        title="Clique ou pressione Enter para buscar imagens de fundo"
+                      >
+                        <span className="preview-label">Background / Hero 🔍</span>
+                        <div className="preview-image-container">
+                          {editBg ? (
+                            <img
+                              src={editBg.startsWith("http") || editBg.startsWith("data:") ? editBg : convertFileSrc(editBg)}
+                              alt="Background"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = "";
+                              }}
+                            />
+                          ) : (
+                            <div className="preview-placeholder">Clique para Buscar Background</div>
+                          )}
+                          <div className="preview-overlay-badge">Alterar Background</div>
                         </div>
                       </div>
                     </div>
@@ -2679,6 +2861,86 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Image Picker Gallery Modal */}
+      <GamepadModal
+        isOpen={imagePickerOpen}
+        onClose={() => setImagePickerOpen(false)}
+        title={imagePickerTarget === "cover" ? `Buscar Capas: ${editName}` : `Buscar Backgrounds: ${editName}`}
+      >
+        <div className="image-picker-container">
+          <div className="image-picker-header">
+            <div className="search-wrapper" style={{ display: "flex", gap: "0.5rem", width: "100%" }}>
+              <input
+                type="text"
+                value={imagePickerQuery}
+                onChange={(e) => setImagePickerQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handlePerformImageSearch();
+                  }
+                }}
+                placeholder="Digitar termo de busca..."
+                style={{ flex: 1, padding: "0.5rem 0.75rem", borderRadius: "6px", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff" }}
+              />
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => handlePerformImageSearch()}
+                disabled={imagePickerLoading}
+              >
+                {imagePickerLoading ? "Buscando..." : "Buscar"}
+              </button>
+            </div>
+          </div>
+
+          {imagePickerLoading ? (
+            <div className="image-picker-loading-state">
+              <div className="spinner"></div>
+              <span>Buscando imagens em segundo plano...</span>
+            </div>
+          ) : imagePickerResults.length === 0 ? (
+            <div className="image-picker-empty-state">
+              <span>Nenhuma imagem encontrada para "{imagePickerQuery}".</span>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                Tente alterar o termo de busca acima e clicar em Buscar.
+              </span>
+            </div>
+          ) : (
+            <div className="image-picker-grid">
+              {imagePickerResults.map((url, idx) => (
+                <div
+                  key={url + "-" + idx}
+                  tabIndex={0}
+                  role="button"
+                  className={`image-picker-card focusable ${imagePickerSelectedIndex === idx ? "focused" : ""}`}
+                  onClick={() => handleSelectImage(url)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      handleSelectImage(url);
+                    }
+                  }}
+                  onMouseEnter={() => setImagePickerSelectedIndex(idx)}
+                >
+                  <img
+                    src={url}
+                    alt={`Opção ${idx + 1}`}
+                    loading="lazy"
+                    onError={(e) => {
+                      const card = (e.target as HTMLImageElement).parentElement;
+                      if (card) card.classList.add("hidden-img");
+                    }}
+                  />
+                  <div className="image-picker-card-overlay">
+                    <span>Selecionar</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </GamepadModal>
     </div>
   );
 }

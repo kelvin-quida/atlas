@@ -60,6 +60,7 @@ pub struct GameDto {
     pub steam_app_id: Option<String>,
     pub igdb_id: Option<i32>,
     pub cover_url: Option<String>,   // resolved at query time from image_assets
+    pub background_url: Option<String>, // resolved at query time from image_assets
     pub last_played: Option<String>,
     pub added_at: String,
 }
