@@ -1,59 +1,43 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { GamepadModal } from "./components/GamepadModal";
 import { useGamepad } from "./providers/GamepadContext";
 import { GamepadActionState } from "./core/focus/gamepadInput";
 import "./App.css";
 
-interface SteamGame {
-  appid: string;       // maps to GameDto.id (UUID) or steam_app_id
-  name: string;
-  installdir: string;
-  library_path: string;
-  image_url: string;   // maps to GameDto.cover_url
-  bg_url?: string;     // maps to background image
-  isCustom?: boolean;
-  exe_path?: string;
-  last_played?: string;
-  added_at?: string;
-}
+// Types
+import {
+  SteamGame,
+  GameDto,
+  PlaytimeStats,
+  SettingsTab,
+  EditTab,
+  FocusArea,
+} from "./types/game";
 
-// Shape of the DB DTO returned from Rust
-interface GameDto {
-  id: string;
-  name: string;
-  platform: string;
-  exe_path?: string;
-  install_dir?: string;
-  steam_app_id?: string;
-  igdb_id?: number;
-  cover_url?: string;
-  background_url?: string;
-  last_played?: string;
-  added_at: string;
-}
+// Utils
+import { gameDtoToSteamGame, getGameImageUrl } from "./utils/gameUtils";
 
-// Map a DB GameDto to the legacy SteamGame shape used throughout the UI
-function gameDtoToSteamGame(dto: GameDto): SteamGame {
-  return {
-    appid: dto.id,
-    name: dto.name,
-    installdir: dto.install_dir ?? "",
-    library_path: "",
-    image_url: dto.cover_url ?? "",
-    bg_url: dto.background_url ?? "",
-    isCustom: dto.platform === "manual",
-    exe_path: dto.exe_path,
-    last_played: dto.last_played,
-    added_at: dto.added_at,
-  };
-}
+// UI & Layout Components
+import { AmbientBackground } from "./components/ui/AmbientBackground";
+import { LaunchingOverlay } from "./components/ui/LaunchingOverlay";
+import { ConsoleLayout } from "./components/layouts/ConsoleLayout";
 
-// Gorgeous mock games to display in dev environment or if Steam isn't installed
-
+// Feature Components
+import { Header } from "./components/features/header/Header";
+import { GameCarousel } from "./components/features/library/GameCarousel";
+import { GameInfoPanel } from "./components/features/library/GameInfoPanel";
+import { EmptyLibrary } from "./components/features/library/EmptyLibrary";
+import { AtlasGameDetailView } from "./components/features/game-details/AtlasGameDetailView";
+import { SettingsModal } from "./components/features/settings/SettingsModal";
+import { OptionsMenuModal } from "./components/features/modals/OptionsMenuModal";
+import { EditGameModal } from "./components/features/modals/EditGameModal";
+import { AddGameModal } from "./components/features/modals/AddGameModal";
+import { FileExplorerModal } from "./components/features/modals/FileExplorerModal";
+import { ImagePickerModal } from "./components/features/modals/ImagePickerModal";
 
 function App() {
+  // Main games states
   const [steamGames, setSteamGames] = useState<SteamGame[]>([]);
   const [customGames, setCustomGames] = useState<SteamGame[]>([]);
   const [games, setGames] = useState<SteamGame[]>([]);
@@ -67,7 +51,7 @@ function App() {
 
   const [launchingGame, setLaunchingGame] = useState<SteamGame | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"geral" | "custom" | "aparencia">("geral");
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("geral");
   const [currentTheme, setCurrentTheme] = useState<string>(() => {
     return localStorage.getItem("atlas_theme") || "atlas";
   });
@@ -80,36 +64,8 @@ function App() {
   const [activeDetailGame, setActiveDetailGame] = useState<SteamGame | null>(null);
   const [detailSelectedIndex, setDetailSelectedIndex] = useState<number>(0);
 
-  // Reset activeDetailGame on theme change
-  useEffect(() => {
-    setActiveDetailGame(null);
-  }, [currentTheme]);
-
-  // Keep activeDetailGame synced with latest games data
-  useEffect(() => {
-    if (activeDetailGame) {
-      const updated = games.find((g) => g.appid === activeDetailGame.appid);
-      if (updated) {
-        setActiveDetailGame(updated);
-      }
-    }
-  }, [games]);
-
-  // Update ambient background when detail page opens
-  useEffect(() => {
-    if (activeDetailGame) {
-      const bg = activeDetailGame.bg_url || activeDetailGame.image_url;
-      if (bg) {
-        const bgUrl = bg.startsWith("http://") || bg.startsWith("https://") || bg.startsWith("data:")
-          ? bg
-          : convertFileSrc(bg);
-        setAmbientBgUrl(bgUrl);
-      }
-    }
-  }, [activeDetailGame]);
-
-  // Playtime Tracking States (Phase 5)
-  const [playtimes, setPlaytimes] = useState<Record<string, { total_seconds: number; formatted: string }>>({});
+  // Playtime Tracking States
+  const [playtimes, setPlaytimes] = useState<Record<string, PlaytimeStats>>({});
   const activeSessionIdRef = useRef<number | null>(null);
 
   // States for options menu and editing
@@ -120,7 +76,7 @@ function App() {
   const [editExe, setEditExe] = useState("");
   const [editImg, setEditImg] = useState("");
   const [editBg, setEditBg] = useState("");
-  const [editTab, setEditTab] = useState<"general" | "advanced" | "media">("general");
+  const [editTab, setEditTab] = useState<EditTab>("general");
 
   // States for background image picker gallery modal
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
@@ -131,14 +87,8 @@ function App() {
   const [imagePickerSelectedIndex, setImagePickerSelectedIndex] = useState(0);
 
   // States for header focus and navigation
-  const [focusArea, setFocusArea] = useState<"carousel" | "header">("carousel");
+  const [focusArea, setFocusArea] = useState<FocusArea>("carousel");
   const [headerSelectedIndex, setHeaderSelectedIndex] = useState(0);
-
-  // Sync theme with document class/attribute
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", currentTheme);
-    localStorage.setItem("atlas_theme", currentTheme);
-  }, [currentTheme]);
 
   // Form states for adding custom game
   const [customName, setCustomName] = useState("");
@@ -163,14 +113,59 @@ function App() {
   const [detectedSelectedIndex, setDetectedSelectedIndex] = useState(0);
   const [addGameSelectedIndex, setAddGameSelectedIndex] = useState(0);
 
-  const carouselRef = useRef<HTMLDivElement>(null);
+  const carouselRef = useRef<HTMLDivElement | null>(null);
   const igdbAttemptsRef = useRef<Record<string, boolean>>({});
+
+  // Reset activeDetailGame on theme change
+  useEffect(() => {
+    setActiveDetailGame(null);
+  }, [currentTheme]);
+
+  // Keep activeDetailGame synced with latest games data
+  useEffect(() => {
+    if (activeDetailGame) {
+      const updated = games.find((g) => g.appid === activeDetailGame.appid);
+      if (updated) {
+        setActiveDetailGame(updated);
+      }
+    }
+  }, [games]);
+
+  // Update ambient background when detail page opens
+  useEffect(() => {
+    if (activeDetailGame) {
+      const bg = activeDetailGame.bg_url || activeDetailGame.image_url;
+      if (bg) {
+        const bgUrl =
+          bg.startsWith("http://") || bg.startsWith("https://") || bg.startsWith("data:")
+            ? bg
+            : convertFileSrc(bg);
+        setAmbientBgUrl(bgUrl);
+      }
+    }
+  }, [activeDetailGame]);
+
+  // Sync theme with document class/attribute
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", currentTheme);
+    localStorage.setItem("atlas_theme", currentTheme);
+  }, [currentTheme]);
 
   // Keyboard navigation for Game Detail Page
   useEffect(() => {
     if (!activeDetailGame) return;
     const handleDetailKeys = (e: KeyboardEvent) => {
-      if (settingsOpen || launchingGame || loading || optionsMenuGame || editingGame || addGameModalOpen || fileExplorerOpen) return;
+      if (
+        settingsOpen ||
+        launchingGame ||
+        loading ||
+        optionsMenuGame ||
+        editingGame ||
+        addGameModalOpen ||
+        fileExplorerOpen
+      )
+        return;
+
       if (e.key === "Escape") {
         e.preventDefault();
         setActiveDetailGame(null);
@@ -191,12 +186,17 @@ function App() {
     };
     window.addEventListener("keydown", handleDetailKeys);
     return () => window.removeEventListener("keydown", handleDetailKeys);
-  }, [activeDetailGame, detailSelectedIndex, settingsOpen, launchingGame, loading, optionsMenuGame, editingGame, addGameModalOpen, fileExplorerOpen]);
-
-
-
-
-
+  }, [
+    activeDetailGame,
+    detailSelectedIndex,
+    settingsOpen,
+    launchingGame,
+    loading,
+    optionsMenuGame,
+    editingGame,
+    addGameModalOpen,
+    fileExplorerOpen,
+  ]);
 
   // Ref to hold current state values for the gamepad loop
   const stateRef = useRef({
@@ -256,8 +256,33 @@ function App() {
       activeDetailGame,
       detailSelectedIndex,
     };
-  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, youtubeActive, twitchActive, optionsMenuGame, optionsMenuSelectedIndex, editingGame, customGames, focusArea, headerSelectedIndex, settingsTab, currentTheme, fileExplorerOpen, fileExplorerSelectedIndex, fileExplorerItems, addGameModalOpen, addGameSelectedIndex, detectedSelectedIndex, installedApps, searchQuery, activeDetailGame, detailSelectedIndex]);
-
+  }, [
+    games,
+    selectedGameIndex,
+    settingsOpen,
+    launchingGame,
+    loading,
+    youtubeActive,
+    twitchActive,
+    optionsMenuGame,
+    optionsMenuSelectedIndex,
+    editingGame,
+    customGames,
+    focusArea,
+    headerSelectedIndex,
+    settingsTab,
+    currentTheme,
+    fileExplorerOpen,
+    fileExplorerSelectedIndex,
+    fileExplorerItems,
+    addGameModalOpen,
+    addGameSelectedIndex,
+    detectedSelectedIndex,
+    installedApps,
+    searchQuery,
+    activeDetailGame,
+    detailSelectedIndex,
+  ]);
 
   const handleOpenYouTube = async () => {
     try {
@@ -301,12 +326,11 @@ function App() {
     }
   };
 
-
   // Load all games from SQLite — runs on mount and handles first-run localStorage migration
   const loadGames = async () => {
     setLoading(true);
     try {
-      // ── First-run migration: move localStorage games into SQLite ──
+      // First-run migration: move localStorage games into SQLite
       const legacyRaw = localStorage.getItem("atlas_custom_games");
       const migrated = localStorage.getItem("atlas_db_migrated");
       if (legacyRaw && !migrated) {
@@ -324,12 +348,11 @@ function App() {
         }
       }
 
-      // ── Load all games from the database ──
+      // Load all games from the database
       const dtos = await invoke<GameDto[]>("db_list_games");
       const allGames = dtos.map(gameDtoToSteamGame);
       allGames.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
 
-      // Split into steam / custom buckets for compatibility with rest of UI
       setSteamGames(allGames.filter((g) => !g.isCustom));
       setCustomGames(allGames.filter((g) => g.isCustom));
       setIsSimulated(false);
@@ -340,14 +363,12 @@ function App() {
     }
   };
 
-  // Load games from DB on mount
-  useEffect(() => {
-    loadGames();
-  }, []);
-
   const loadPlaytime = async (gameId: string) => {
     try {
-      const stats = await invoke<{ game_id: string; total_seconds: number; formatted: string }>("get_game_playtime", { gameId });
+      const stats = await invoke<{ game_id: string; total_seconds: number; formatted: string }>(
+        "get_game_playtime",
+        { gameId }
+      );
       setPlaytimes((prev) => ({
         ...prev,
         [gameId]: { total_seconds: stats.total_seconds, formatted: stats.formatted },
@@ -372,10 +393,12 @@ function App() {
         const sid = activeSessionIdRef.current;
         activeSessionIdRef.current = null;
         try {
-          const res = await invoke<{ duration_seconds: number; formatted: string }>("end_play_session", { sessionId: sid });
+          const res = await invoke<{ duration_seconds: number; formatted: string }>(
+            "end_play_session",
+            { sessionId: sid }
+          );
           console.log(`[Playtime] Ended session ${sid}. Played for ${res.formatted}`);
 
-          // Refresh playtime for current game
           const game = games[selectedGameIndex];
           if (game) {
             loadPlaytime(game.appid);
@@ -395,11 +418,9 @@ function App() {
   // Merge steamGames and customGames when either changes
   useEffect(() => {
     const merged = [...steamGames, ...customGames];
-    // Sort games alphabetically by name
     merged.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
     setGames(merged);
 
-    // Safeguard selection index bounds
     if (selectedGameIndex >= merged.length && merged.length > 0) {
       setSelectedGameIndex(merged.length - 1);
     }
@@ -413,7 +434,6 @@ function App() {
 
         invoke<string>("get_game_image_url", { gameName: game.name })
           .then((newUrl) => {
-            // Remove error state if any was set
             setImageErrors((prev) => {
               const next = { ...prev };
               delete next[game.appid];
@@ -422,7 +442,9 @@ function App() {
 
             if (game.isCustom) {
               setCustomGames((prev) => {
-                const next = prev.map((g) => (g.appid === game.appid ? { ...g, image_url: newUrl } : g));
+                const next = prev.map((g) =>
+                  g.appid === game.appid ? { ...g, image_url: newUrl } : g
+                );
                 localStorage.setItem("atlas_custom_games", JSON.stringify(next));
                 return next;
               });
@@ -450,18 +472,18 @@ function App() {
 
     let bgUrl = "";
     if (activeGame.bg_url) {
-      bgUrl = activeGame.bg_url.startsWith("http://") || activeGame.bg_url.startsWith("https://") || activeGame.bg_url.startsWith("data:")
-        ? activeGame.bg_url
-        : convertFileSrc(activeGame.bg_url);
+      bgUrl =
+        activeGame.bg_url.startsWith("http://") ||
+        activeGame.bg_url.startsWith("https://") ||
+        activeGame.bg_url.startsWith("data:")
+          ? activeGame.bg_url
+          : convertFileSrc(activeGame.bg_url);
     } else if (activeGame.image_url) {
       if (!activeGame.isCustom) {
-        // Use Steam's landscape header image: much smaller and loads instantly
         bgUrl = `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${activeGame.appid}/header.jpg`;
       } else if (activeGame.image_url.includes("images.igdb.com")) {
-        // Use IGDB's t_cover_big (which is 264x352, about 10-20KB instead of 720p 200KB)
         bgUrl = activeGame.image_url.replace("t_720p", "t_cover_big");
       } else {
-        // Fallback to custom game image URL (local file src or other remote source)
         bgUrl = getGameImageUrl(activeGame);
       }
     }
@@ -471,7 +493,6 @@ function App() {
       return;
     }
 
-    // Preload image in memory before transitioning
     const img = new Image();
     img.src = bgUrl;
     img.onload = () => {
@@ -479,15 +500,16 @@ function App() {
     };
   }, [selectedGameIndex, games, loading]);
 
-
-
   // Check if custom registry Windows shell replacement is currently enabled
   const checkShellStatus = async () => {
     try {
       const enabled = await invoke<boolean>("is_shell_replacement_enabled");
       setShellEnabled(enabled);
     } catch (err) {
-      console.warn("Shell replacement check is only fully functional in Windows production builds.", err);
+      console.warn(
+        "Shell replacement check is only fully functional in Windows production builds.",
+        err
+      );
     }
   };
 
@@ -498,13 +520,14 @@ function App() {
       setShellEnabled(checked);
     } catch (err) {
       console.error(err);
-      alert(`Erro ao alterar o registro: ${err}\n(Esta função precisa de permissões administrativas no Windows)`);
+      alert(
+        `Erro ao alterar o registro: ${err}\n(Esta função precisa de permissões administrativas no Windows)`
+      );
     }
   };
 
   // Launch selected game (Steam or Custom)
   const handleLaunchGame = async (game: SteamGame) => {
-    // 1. Fechar YouTube e Twitch se estiverem abertos para liberar RAM imediatamente
     if (youtubeActive) {
       await handleCloseYouTube();
     }
@@ -514,10 +537,11 @@ function App() {
 
     setLaunchingGame(game);
     try {
-      // Start session in DB before launching
       if (!isSimulated) {
         try {
-          const res = await invoke<{ session_id: number }>("start_play_session", { gameId: game.appid });
+          const res = await invoke<{ session_id: number }>("start_play_session", {
+            gameId: game.appid,
+          });
           activeSessionIdRef.current = res.session_id;
           console.log(`[Playtime] Started session ${res.session_id} for ${game.name}`);
         } catch (e) {
@@ -539,14 +563,12 @@ function App() {
         }
       }
 
-      // 2. Minimizar a janela principal do Tauri para liberar processos de renderização GPU e Working Set de RAM
       try {
         await getCurrentWindow().minimize();
       } catch (winErr) {
         console.error("Falha ao minimizar janela do launcher:", winErr);
       }
 
-      // Pequeno cooldown de transição pós-lançamento
       await new Promise((resolve) => setTimeout(resolve, 1000));
     } catch (err) {
       console.error(err);
@@ -598,10 +620,10 @@ function App() {
       .then((drives) => {
         setAvailableDrives(drives);
         setFileExplorerPath("");
-        const items = drives.map(drive => ({
+        const items = drives.map((drive) => ({
           name: `Disco Local (${drive})`,
           path: drive,
-          is_dir: true
+          is_dir: true,
         }));
         setFileExplorerItems(items);
         setFileExplorerSelectedIndex(0);
@@ -622,10 +644,10 @@ function App() {
         .then((drives) => {
           setAvailableDrives(drives);
           setFileExplorerPath("");
-          const items = drives.map(drive => ({
+          const items = drives.map((drive) => ({
             name: `Disco Local (${drive})`,
             path: drive,
-            is_dir: true
+            is_dir: true,
           }));
           setFileExplorerItems(items);
           setFileExplorerSelectedIndex(0);
@@ -636,13 +658,16 @@ function App() {
       return;
     }
 
-    invoke<any[]>("list_dir_contents", { path: newPath, allowedExtensions: fileExplorerFilter })
+    invoke<any[]>("list_dir_contents", {
+      path: newPath,
+      allowedExtensions: fileExplorerFilter,
+    })
       .then((items) => {
         setFileExplorerPath(newPath);
         const parentItem = {
           name: ".. (Voltar)",
           path: "..",
-          is_dir: true
+          is_dir: true,
         };
         setFileExplorerItems([parentItem, ...items]);
         setFileExplorerSelectedIndex(0);
@@ -655,7 +680,9 @@ function App() {
   const handleFileExplorerSelect = async (item: any) => {
     if (item.path === "..") {
       try {
-        const parent = await invoke<string>("get_parent_path", { path: fileExplorerPath });
+        const parent = await invoke<string>("get_parent_path", {
+          path: fileExplorerPath,
+        });
         navigateToPath(parent);
       } catch (err) {
         console.error(err);
@@ -686,7 +713,9 @@ function App() {
       .then((drives) => {
         setAvailableDrives(drives);
         const initDrives: Record<string, boolean> = {};
-        drives.forEach((d) => { initDrives[d] = true; });
+        drives.forEach((d) => {
+          initDrives[d] = true;
+        });
         setSelectedDrives(initDrives);
       })
       .catch((err) => console.error("Erro ao carregar drives:", err));
@@ -716,8 +745,6 @@ function App() {
     });
   };
 
-
-
   const handleEditPickExe = () => {
     openFileExplorer(["exe", "sh", "bin"], (path) => {
       setEditExe(path);
@@ -730,7 +757,6 @@ function App() {
     });
   };
 
-
   const handleAddCustomGameSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!customName || !customExe) {
@@ -742,7 +768,9 @@ function App() {
     let resolvedImg = customImg;
     if (!resolvedImg) {
       try {
-        resolvedImg = await invoke<string>("get_game_image_url", { gameName: customName });
+        resolvedImg = await invoke<string>("get_game_image_url", {
+          gameName: customName,
+        });
       } catch (err) {
         console.warn("Could not auto-fetch image during addition:", err);
       }
@@ -764,7 +792,6 @@ function App() {
       alert(`Erro ao salvar o jogo: ${err}`);
     }
 
-    // Reset form
     setCustomName("");
     setCustomExe("");
     setCustomImg("");
@@ -794,7 +821,9 @@ function App() {
     let resolvedImg = editImg || null;
     if (!resolvedImg) {
       try {
-        resolvedImg = await invoke<string>("get_game_image_url", { gameName: editName });
+        resolvedImg = await invoke<string>("get_game_image_url", {
+          gameName: editName,
+        });
       } catch (err) {
         console.warn("Could not auto-fetch image during edit:", err);
       }
@@ -828,7 +857,8 @@ function App() {
       return;
     }
     setImagePickerTarget(target);
-    const defaultQuery = target === "cover" ? `${editName} cover` : `${editName} background`;
+    const defaultQuery =
+      target === "cover" ? `${editName} cover` : `${editName} background`;
     setImagePickerQuery(defaultQuery);
     setImagePickerOpen(true);
     setImagePickerLoading(true);
@@ -836,7 +866,9 @@ function App() {
     setImagePickerSelectedIndex(0);
 
     try {
-      const urls = await invoke<string[]>("search_game_images", { query: defaultQuery });
+      const urls = await invoke<string[]>("search_game_images", {
+        query: defaultQuery,
+      });
       setImagePickerResults(urls);
     } catch (err) {
       console.error("Erro ao buscar imagens em background:", err);
@@ -852,7 +884,9 @@ function App() {
     setImagePickerLoading(true);
     setImagePickerSelectedIndex(0);
     try {
-      const urls = await invoke<string[]>("search_game_images", { query: queryToUse });
+      const urls = await invoke<string[]>("search_game_images", {
+        query: queryToUse,
+      });
       setImagePickerResults(urls);
     } catch (err) {
       console.error("Erro ao buscar imagens:", err);
@@ -869,8 +903,6 @@ function App() {
     }
     setImagePickerOpen(false);
   };
-
-
 
   // Refs for scrolling container
   const detectedListRef = useRef<HTMLDivElement | null>(null);
@@ -944,7 +976,9 @@ function App() {
   useEffect(() => {
     const handleAddGameKeys = (e: KeyboardEvent) => {
       if (!addGameModalOpen || fileExplorerOpen) return;
-      const fApps = installedApps.filter((app) => app.name.toLowerCase().includes(searchQuery.toLowerCase()));
+      const fApps = installedApps.filter((app) =>
+        app.name.toLowerCase().includes(searchQuery.toLowerCase())
+      );
 
       if (e.key === "ArrowUp") {
         e.preventDefault();
@@ -1000,7 +1034,14 @@ function App() {
     };
     window.addEventListener("keydown", handleAddGameKeys);
     return () => window.removeEventListener("keydown", handleAddGameKeys);
-  }, [addGameModalOpen, addGameSelectedIndex, detectedSelectedIndex, installedApps, searchQuery, fileExplorerOpen]);
+  }, [
+    addGameModalOpen,
+    addGameSelectedIndex,
+    detectedSelectedIndex,
+    installedApps,
+    searchQuery,
+    fileExplorerOpen,
+  ]);
 
   // Keydown listener for Keyboard Navigation inside In-App File Explorer
   useEffect(() => {
@@ -1009,10 +1050,14 @@ function App() {
 
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setFileExplorerSelectedIndex((prev) => (prev > 0 ? prev - 1 : fileExplorerItems.length - 1));
+        setFileExplorerSelectedIndex((prev) =>
+          prev > 0 ? prev - 1 : fileExplorerItems.length - 1
+        );
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
-        setFileExplorerSelectedIndex((prev) => (prev < fileExplorerItems.length - 1 ? prev + 1 : 0));
+        setFileExplorerSelectedIndex((prev) =>
+          prev < fileExplorerItems.length - 1 ? prev + 1 : 0
+        );
       } else if (e.key === "Enter") {
         e.preventDefault();
         const selectedItem = fileExplorerItems[fileExplorerSelectedIndex];
@@ -1075,7 +1120,6 @@ function App() {
       }
 
       if (games.length === 0) {
-        // When library is empty, only allow header navigation and hotkeys
         if (e.key === "s" || e.key === "S") {
           e.preventDefault();
           setSettingsOpen(true);
@@ -1092,7 +1136,6 @@ function App() {
           return;
         }
 
-        // Force header focus if they try to navigate or it's not set
         if (focusArea !== "header") {
           setFocusArea("header");
           setHeaderSelectedIndex(0);
@@ -1172,7 +1215,20 @@ function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, isSimulated, youtubeActive, twitchActive, optionsMenuGame, editingGame, focusArea, headerSelectedIndex]);
+  }, [
+    games,
+    selectedGameIndex,
+    settingsOpen,
+    launchingGame,
+    loading,
+    isSimulated,
+    youtubeActive,
+    twitchActive,
+    optionsMenuGame,
+    editingGame,
+    focusArea,
+    headerSelectedIndex,
+  ]);
 
   // Keyboard navigation for options menu
   useEffect(() => {
@@ -1185,10 +1241,14 @@ function App() {
 
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setOptionsMenuSelectedIndex((prev) => (prev > 0 ? prev - 1 : availableOptions.length - 1));
+        setOptionsMenuSelectedIndex((prev) =>
+          prev > 0 ? prev - 1 : availableOptions.length - 1
+        );
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
-        setOptionsMenuSelectedIndex((prev) => (prev < availableOptions.length - 1 ? prev + 1 : 0));
+        setOptionsMenuSelectedIndex((prev) =>
+          prev < availableOptions.length - 1 ? prev + 1 : 0
+        );
       } else if (e.key === "Enter") {
         e.preventDefault();
         triggerOption(availableOptions[optionsMenuSelectedIndex], optionsMenuGame);
@@ -1213,8 +1273,6 @@ function App() {
     window.addEventListener("keydown", handleEditKeys);
     return () => window.removeEventListener("keydown", handleEditKeys);
   }, [editingGame]);
-
-
 
   // Scroll carousel to center active card
   useEffect(() => {
@@ -1316,9 +1374,13 @@ function App() {
 
       if (isFileExplorerOpen) {
         if (actions.up) {
-          setFileExplorerSelectedIndex((prev) => (prev > 0 ? prev - 1 : fileExplorerItms.length - 1));
+          setFileExplorerSelectedIndex((prev) =>
+            prev > 0 ? prev - 1 : fileExplorerItms.length - 1
+          );
         } else if (actions.down) {
-          setFileExplorerSelectedIndex((prev) => (prev < fileExplorerItms.length - 1 ? prev + 1 : 0));
+          setFileExplorerSelectedIndex((prev) =>
+            prev < fileExplorerItms.length - 1 ? prev + 1 : 0
+          );
         } else if (actions.a) {
           const selectedItem = fileExplorerItms[fileExplorerIdx];
           if (selectedItem) handleFileExplorerSelectRef.current?.(selectedItem);
@@ -1329,7 +1391,9 @@ function App() {
       }
 
       if (isAddGameOpen) {
-        const fApps = instApps.filter((app: any) => app.name.toLowerCase().includes(sQuery.toLowerCase()));
+        const fApps = instApps.filter((app: any) =>
+          app.name.toLowerCase().includes(sQuery.toLowerCase())
+        );
         if (actions.b) {
           setAddGameModalOpen(false);
         } else if (addGameIdx === 2) {
@@ -1369,7 +1433,10 @@ function App() {
             else if (addGameIdx === 7) setAddGameSelectedIndex(8);
           } else if (actions.a) {
             const active = document.activeElement;
-            if (active instanceof HTMLElement && !(active instanceof HTMLInputElement && active.type === "text")) {
+            if (
+              active instanceof HTMLElement &&
+              !(active instanceof HTMLInputElement && active.type === "text")
+            ) {
               active.click();
             }
           }
@@ -1393,11 +1460,18 @@ function App() {
           : ["play", "cancel"];
 
         if (actions.up) {
-          setOptionsMenuSelectedIndex((prev) => (prev > 0 ? prev - 1 : availableOptions.length - 1));
+          setOptionsMenuSelectedIndex((prev) =>
+            prev > 0 ? prev - 1 : availableOptions.length - 1
+          );
         } else if (actions.down) {
-          setOptionsMenuSelectedIndex((prev) => (prev < availableOptions.length - 1 ? prev + 1 : 0));
+          setOptionsMenuSelectedIndex((prev) =>
+            prev < availableOptions.length - 1 ? prev + 1 : 0
+          );
         } else if (actions.a) {
-          triggerOptionRef.current?.(availableOptions[selectedOptionIdx], isOptionsMenuOpen);
+          triggerOptionRef.current?.(
+            availableOptions[selectedOptionIdx],
+            isOptionsMenuOpen
+          );
         } else if (actions.b) {
           setOptionsMenuGame(null);
         }
@@ -1449,7 +1523,6 @@ function App() {
             setAddGameModalOpen(true);
           }
         } else if (focusArea === "header") {
-
           if (actions.left) {
             setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 2));
           } else if (actions.right) {
@@ -1490,7 +1563,6 @@ function App() {
           return next;
         });
 
-        // Persist the cover to the database + download to disk
         try {
           const dto = await invoke<GameDto>("db_update_game", {
             gameId: appid,
@@ -1505,11 +1577,14 @@ function App() {
             setSteamGames((prev) => prev.map((g) => (g.appid === appid ? updated : g)));
           }
         } catch {
-          // Fallback: update UI only
           if (game.isCustom) {
-            setCustomGames((prev) => prev.map((g) => (g.appid === appid ? { ...g, image_url: newUrl } : g)));
+            setCustomGames((prev) =>
+              prev.map((g) => (g.appid === appid ? { ...g, image_url: newUrl } : g))
+            );
           } else {
-            setSteamGames((prev) => prev.map((g) => (g.appid === appid ? { ...g, image_url: newUrl } : g)));
+            setSteamGames((prev) =>
+              prev.map((g) => (g.appid === appid ? { ...g, image_url: newUrl } : g))
+            );
           }
         }
       })
@@ -1518,1430 +1593,207 @@ function App() {
       });
   };
 
-
   const activeGame = games[selectedGameIndex];
 
-  // Resolve image source: local AppData path → asset:// URL, remote → passthrough
-  const getGameImageUrl = (game: SteamGame): string => {
-    if (!game.image_url) return "";
-    // Remote URLs pass through as-is
-    if (
-      game.image_url.startsWith("http://") ||
-      game.image_url.startsWith("https://") ||
-      game.image_url.startsWith("data:")
-    ) {
-      return game.image_url;
-    }
-    // Local relative path (e.g. "assets/covers/abc.jpg") — needs convertFileSrc
-    try {
-      return convertFileSrc(game.image_url);
-    } catch (e) {
-      console.error("Failed to convert file src:", e);
-      return "";
+  const handleSelectGameInCarousel = (index: number, game: SteamGame) => {
+    setSelectedGameIndex(index);
+    if (currentTheme === "atlas") {
+      setActiveDetailGame(game);
+      setDetailSelectedIndex(0);
+    } else {
+      if (index === selectedGameIndex && focusArea === "carousel") {
+        handleTryLaunchGame(game);
+      } else {
+        setFocusArea("carousel");
+      }
     }
   };
-
-  // Generate consistent premium CSS background gradient based on name hash
-  const getGradientBg = (name: string) => {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const h1 = Math.abs(hash % 360);
-    const h2 = Math.abs((hash + 80) % 360);
-    return `linear-gradient(135deg, hsl(${h1}, 65%, 22%) 0%, hsl(${h2}, 65%, 10%) 100%)`;
-  };
-
-  // Generate game-specific widgets for PS5 theme (updated with real playtime stats)
-  const getGameWidgets = (game: SteamGame) => {
-    const name = game.name;
-    const playtimeFormatted = playtimes[game.appid]?.formatted || "< 1m";
-
-    if (name.includes("Baldur's Gate")) {
-      return [
-        { title: "Troféus", desc: "Ato III iniciado", value: "32%", progress: 32 },
-        { title: "Atividades", desc: "Acampamento na taverna", value: "Aventura ativa" },
-        { title: "Tempo jogado", desc: "Tempo total registrado", value: playtimeFormatted }
-      ];
-    }
-    if (name.includes("Cyberpunk")) {
-      return [
-        { title: "Troféus", desc: "Cidade dos Sonhos", value: "48%", progress: 48 },
-        { title: "Atividades", desc: "Trabalho Sujo com Rogue", value: "Missão pendente" },
-        { title: "Tempo jogado", desc: "Tempo total registrado", value: playtimeFormatted }
-      ];
-    }
-    if (name.includes("Elden Ring")) {
-      return [
-        { title: "Troféus", desc: "Lendário Lorde de Limgrave", value: "78%", progress: 78 },
-        { title: "Atividades", desc: "Explorar Ruínas de Caelid", value: "Nível 105" },
-        { title: "Tempo jogado", desc: "Tempo total registrado", value: playtimeFormatted }
-      ];
-    }
-    if (name.includes("Hades")) {
-      return [
-        { title: "Fugas", desc: "Tentativas de fuga bem sucedidas: 14", value: "14 fugas" },
-        { title: "Troféus", desc: "Sangue e Trevas", value: "90%", progress: 90 },
-        { title: "Tempo jogado", desc: "Tempo total registrado", value: playtimeFormatted }
-      ];
-    }
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const completion = Math.abs(hash % 90) + 10;
-    return [
-      { title: "Troféus", desc: "Progresso da Campanha", value: `${completion}%`, progress: completion },
-      { title: "Atividades", desc: "Retomar de onde parou", value: "Jogar agora" },
-      { title: "Tempo jogado", desc: "Tempo total registrado", value: playtimeFormatted }
-    ];
-  };
-
-
 
   return (
-    <div className="app-root">
-
-      {/* Blurred ambient theme bg */}
-      <div
-        className="ambient-bg"
-        style={{
-          backgroundImage: ambientBgUrl ? `url(${ambientBgUrl})` : "none",
-          backgroundColor: ambientBgUrl ? "var(--bg-primary)" : "transparent",
-        }}
-      >
-        {activeGame && !activeGame.image_url && (
-          <div style={{ width: "100%", height: "100%", background: getGradientBg(activeGame.name), opacity: 0.15 }}></div>
-        )}
-      </div>
-      <div className="ambient-overlay"></div>
-
-      <div className="console-container">
-        {/* Top Header Section */}
-        {currentTheme === "ps5" ? (
-          <header className="ps5-header">
-            <div className="ps5-header-left">
-              <div className="ps5-menu-tab active">Jogos</div>
-              <div className="ps5-menu-tab">Mídia</div>
-            </div>
-            <div className="ps5-header-right">
-              <button
-                className={`ps5-icon-btn ${focusArea === "header" && headerSelectedIndex === 0 ? "focused" : ""}`}
-                onClick={handleOpenYouTube}
-                title="YouTube"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
-                </svg>
-              </button>
-              <button
-                className={`ps5-icon-btn twitch-btn ${focusArea === "header" && headerSelectedIndex === 1 ? "focused" : ""}`}
-                onClick={handleOpenTwitch}
-                title="Twitch"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M11.571 4.714h1.715v5.143h-1.715zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/>
-                </svg>
-              </button>
-              <button
-                className={`ps5-icon-btn ${focusArea === "header" && headerSelectedIndex === 2 ? "focused" : ""}`}
-                onClick={() => setSettingsOpen(true)}
-                title="Configurações"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                </svg>
-              </button>
-              <div className="ps5-avatar-circle" title="Perfil">
-                <div className="ps5-avatar-inner"></div>
-              </div>
-              <div className="ps5-time-display">{systemTime}</div>
-            </div>
-          </header>
+    <ConsoleLayout
+      ambientBg={
+        <AmbientBackground
+          ambientBgUrl={ambientBgUrl}
+          activeGame={activeGame}
+        />
+      }
+      header={
+        <Header
+          currentTheme={currentTheme}
+          focusArea={focusArea}
+          headerSelectedIndex={headerSelectedIndex}
+          systemTime={systemTime}
+          onOpenYouTube={handleOpenYouTube}
+          onOpenTwitch={handleOpenTwitch}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      }
+      mainContent={
+        currentTheme === "atlas" && activeDetailGame ? (
+          <AtlasGameDetailView
+            activeDetailGame={activeDetailGame}
+            detailSelectedIndex={detailSelectedIndex}
+            playtimes={playtimes}
+            setDetailSelectedIndex={setDetailSelectedIndex}
+            onClose={() => setActiveDetailGame(null)}
+            onTryLaunchGame={handleTryLaunchGame}
+            onOpenOptionsMenu={setOptionsMenuGame}
+            onOpenEditMedia={(game) => {
+              setEditName(game.name);
+              setEditExe(game.exe_path || "");
+              setEditImg(game.image_url || "");
+              setEditBg(game.bg_url || "");
+              setEditTab("media");
+              setEditingGame(game);
+            }}
+          />
+        ) : games.length === 0 && !loading ? (
+          <EmptyLibrary
+            onAddGameClick={() => {
+              setSettingsOpen(true);
+              setSettingsTab("custom");
+            }}
+          />
         ) : (
-          <header className="console-header">
-            <div className="logo-container">
-              <span className="logo-text">ATLAS</span>
-              <span className="logo-tag">LAUNCHER</span>
-            </div>
+          <>
+            <GameInfoPanel
+              activeGame={activeGame}
+              currentTheme={currentTheme}
+              playtimes={playtimes}
+              onTryLaunchGame={handleTryLaunchGame}
+            />
 
-            <div className="system-status">
-              <button
-                className={`header-icon-btn ${focusArea === "header" && headerSelectedIndex === 0 ? "focused" : ""}`}
-                onClick={handleOpenYouTube}
-                title="YouTube"
-                style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: "0.25rem", transition: "all 0.2s ease" }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
-                </svg>
-              </button>
-              <button
-                className={`header-icon-btn twitch-btn ${focusArea === "header" && headerSelectedIndex === 1 ? "focused" : ""}`}
-                onClick={handleOpenTwitch}
-                title="Twitch"
-                style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: "0.25rem", transition: "all 0.2s ease" }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M11.571 4.714h1.715v5.143h-1.715zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/>
-                </svg>
-              </button>
-              <button
-                className={`header-icon-btn ${focusArea === "header" && headerSelectedIndex === 2 ? "focused" : ""}`}
-                onClick={() => setSettingsOpen(true)}
-                title="Configurações"
-                style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: "0.25rem", transition: "all 0.2s ease" }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                </svg>
-              </button>
-              <div className="system-time">{systemTime}</div>
-            </div>
-          </header>
-        )}
-
-        {/* Main Content Area */}
-        <main className="console-content">
-          {currentTheme === "atlas" && activeDetailGame ? (
-            <div className="atlas-game-detail-view">
-              {/* Top Navigation Bar */}
-              <div className="atlas-detail-topbar">
-                <button
-                  tabIndex={0}
-                  className={`atlas-detail-back-btn focusable ${detailSelectedIndex === 2 ? "focused" : ""}`}
-                  onClick={() => setActiveDetailGame(null)}
-                  onMouseEnter={() => setDetailSelectedIndex(2)}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <line x1="19" y1="12" x2="5" y2="12"></line>
-                    <polyline points="12 19 5 12 12 5"></polyline>
-                  </svg>
-                  <span>Voltar para a Biblioteca</span>
-                  <span className="key-hint-badge">ESC</span>
-                </button>
-              </div>
-
-              {/* Hero Header Banner Card */}
-              <div className="atlas-detail-hero-banner">
-                <div className="atlas-hero-main-info">
-                  <div className="atlas-hero-badges">
-                    <span className="platform-badge">
-                      🎮 {activeDetailGame.isCustom ? "Jogo Personalizado (PC)" : "Biblioteca Steam"}
-                    </span>
-                    <span className="status-badge">
-                      <span className="status-dot"></span> Pronto para Jogar
-                    </span>
-                  </div>
-
-                  <h1 className="atlas-hero-title">{activeDetailGame.name}</h1>
-
-                  <p className="atlas-hero-subtitle">
-                    {activeDetailGame.isCustom
-                      ? `Atalho local executável • ${activeDetailGame.exe_path || "Pasta do sistema"}`
-                      : `Steam App ID: ${activeDetailGame.appid} • Sincronizado`}
-                  </p>
-
-                  {/* Hero Actions Row */}
-                  <div className="atlas-hero-actions-row">
-                    <button
-                      tabIndex={0}
-                      className={`atlas-detail-play-btn focusable ${detailSelectedIndex === 0 ? "focused" : ""}`}
-                      onClick={() => handleTryLaunchGame(activeDetailGame)}
-                      onMouseEnter={() => setDetailSelectedIndex(0)}
-                    >
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
-                      <span>Iniciar Jogo</span>
-                    </button>
-
-                    <button
-                      tabIndex={0}
-                      className={`atlas-detail-options-btn focusable ${detailSelectedIndex === 1 ? "focused" : ""}`}
-                      onClick={() => setOptionsMenuGame(activeDetailGame)}
-                      onMouseEnter={() => setDetailSelectedIndex(1)}
-                    >
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <circle cx="12" cy="12" r="3" />
-                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                      </svg>
-                      <span>Opções & Mídia</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Metrics Ribbon */}
-                <div className="atlas-metrics-ribbon">
-                  <div className="metric-pill">
-                    <span className="metric-icon">⏱️</span>
-                    <div className="metric-info">
-                      <span className="metric-label">Tempo Jogado</span>
-                      <span className="metric-value">{playtimes[activeDetailGame.appid]?.formatted || "< 1 minuto"}</span>
-                    </div>
-                  </div>
-
-                  <div className="metric-pill">
-                    <span className="metric-icon">📅</span>
-                    <div className="metric-info">
-                      <span className="metric-label">Última Vez Jogado</span>
-                      <span className="metric-value">
-                        {activeDetailGame.last_played ? new Date(activeDetailGame.last_played).toLocaleDateString() : "Nunca jogado"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="metric-pill">
-                    <span className="metric-icon">☁️</span>
-                    <div className="metric-info">
-                      <span className="metric-label">Nuvem & Salvamentos</span>
-                      <span className="metric-value text-cyan">Sincronizado</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Content Grid (2 Columns) */}
-              <div className="atlas-detail-content-grid">
-                {/* Left Column: Media Gallery & Installation Info */}
-                <div className="atlas-detail-main-col">
-                  {/* Media Gallery Showcase */}
-                  <div className="atlas-card media-showcase-card">
-                    <div className="atlas-card-header">
-                      <h3 className="atlas-card-title">Arquivos de Mídia</h3>
-                      <button
-                        tabIndex={0}
-                        className="atlas-card-action-btn focusable"
-                        onClick={() => {
-                          setEditName(activeDetailGame.name);
-                          setEditExe(activeDetailGame.exe_path || "");
-                          setEditImg(activeDetailGame.image_url || "");
-                          setEditBg(activeDetailGame.bg_url || "");
-                          setEditTab("media");
-                          setEditingGame(activeDetailGame);
-                        }}
-                      >
-                        ✏️ Editar Mídias
-                      </button>
-                    </div>
-
-                    <div className="media-showcase-grid">
-                      <div className="media-item-box cover-box">
-                        <span className="media-item-label">Capa Oficial</span>
-                        <div className="media-item-img-container">
-                          {activeDetailGame.image_url ? (
-                            <img src={getGameImageUrl(activeDetailGame)} alt="Capa" />
-                          ) : (
-                            <div className="media-placeholder">Sem Capa</div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="media-item-box bg-box">
-                        <span className="media-item-label">Background / Hero Banner</span>
-                        <div className="media-item-img-container">
-                          {activeDetailGame.bg_url ? (
-                            <img
-                              src={
-                                activeDetailGame.bg_url.startsWith("http") || activeDetailGame.bg_url.startsWith("data:")
-                                  ? activeDetailGame.bg_url
-                                  : convertFileSrc(activeDetailGame.bg_url)
-                              }
-                              alt="Background"
-                            />
-                          ) : (
-                            <div className="media-placeholder">Sem Background</div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Installation & Execution Card */}
-                  <div className="atlas-card install-info-card">
-                    <div className="atlas-card-header">
-                      <h3 className="atlas-card-title">Informações do Sistema & Instalação</h3>
-                    </div>
-                    <div className="install-info-list">
-                      <div className="info-row">
-                        <span className="info-key">Executável do Jogo:</span>
-                        <span className="info-val" title={activeDetailGame.exe_path || "Padrão do Sistema"}>
-                          {activeDetailGame.exe_path || "Executável Padrão do Sistema"}
-                        </span>
-                      </div>
-                      <div className="info-row">
-                        <span className="info-key">Plataforma / Origem:</span>
-                        <span className="info-val">{activeDetailGame.isCustom ? "Atalho Personalizado (PC)" : "Biblioteca Steam"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="info-key">ID do Registro:</span>
-                        <span className="info-val">{activeDetailGame.appid}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right Column: How Long To Beat & Stats Sidebar */}
-                <div className="atlas-detail-side-col">
-                  {/* How Long To Beat Widget */}
-                  <div className="atlas-card hltb-card">
-                    <div className="atlas-card-header">
-                      <h3 className="atlas-card-title">How Long To Beat (Estimativa)</h3>
-                    </div>
-                    <div className="hltb-grid">
-                      <div className="hltb-item">
-                        <div className="hltb-icon">⏱️</div>
-                        <div className="hltb-val">12½h</div>
-                        <div className="hltb-label">História Principal</div>
-                      </div>
-                      <div className="hltb-item">
-                        <div className="hltb-icon">⏱️</div>
-                        <div className="hltb-val">24h</div>
-                        <div className="hltb-label">Principal + Extras</div>
-                      </div>
-                      <div className="hltb-item">
-                        <div className="hltb-icon">🏆</div>
-                        <div className="hltb-val">50h</div>
-                        <div className="hltb-label">100% Completo</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Game Stats Widget */}
-                  <div className="atlas-card stats-card">
-                    <div className="atlas-card-header">
-                      <h3 className="atlas-card-title">Estatísticas do Jogo</h3>
-                    </div>
-                    <div className="stats-list">
-                      <div className="stat-row">
-                        <span className="stat-name">Avaliação Geral</span>
-                        <span className="stat-score">★ 4.8 / 5</span>
-                      </div>
-                      <div className="stat-row">
-                        <span className="stat-name">Comunidade Ativa</span>
-                        <span className="stat-score">+120.4K Jogadores</span>
-                      </div>
-                      <div className="stat-row">
-                        <span className="stat-name">Data de Adição</span>
-                        <span className="stat-score">
-                          {activeDetailGame.added_at ? new Date(activeDetailGame.added_at).toLocaleDateString() : "Recente"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : games.length === 0 && !loading ? (
-            <div className="empty-library-container">
-              <div className="empty-library-content">
-                <div className="empty-library-icon">
-                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
-                    <path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16" />
-                  </svg>
-                </div>
-                <h2>Sua Biblioteca está Vazia</h2>
-                <p>Adicione um jogo personalizado nas Configurações para começar a jogar.</p>
-                <button
-                  className="empty-library-btn"
-                  onClick={() => { setSettingsOpen(true); setSettingsTab("custom"); }}
-                >
-                  Adicionar Jogo
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="game-info-panel">
-                {activeGame && (
-                  <>
-                    {currentTheme === "ps5" ? (
-                      <div className="ps5-game-hero-container">
-                        <div className="ps5-game-logo">{activeGame.name}</div>
-                        <div className="game-meta-active">
-                          <span>
-                            Tipo: <span className="meta-pill">{activeGame.isCustom ? "Customizado" : "Steam"}</span>
-                          </span>
-                          <span>•</span>
-                          <span>{activeGame.isCustom ? "Atalho Local Executável" : `AppID: ${activeGame.appid}`}</span>
-                        </div>
-                        <div className="ps5-hero-actions">
-                          <button className="ps5-play-btn" onClick={() => handleTryLaunchGame(activeGame)}>
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M8 5v14l11-7z" />
-                            </svg>
-                            Jogar
-                          </button>
-                        </div>
-
-                        <div className="ps5-widgets-row">
-                          {getGameWidgets(activeGame).map((w, idx) => (
-                            <div className="ps5-widget-card" key={idx}>
-                              <div className="ps5-widget-title">{w.title}</div>
-                              <div className="ps5-widget-desc">{w.desc}</div>
-                              {w.progress !== undefined ? (
-                                <div className="ps5-widget-progress-container">
-                                  <span className="ps5-widget-value">{w.value}</span>
-                                  <div className="ps5-widget-progress-bar">
-                                    <div className="ps5-widget-progress-fill" style={{ width: `${w.progress}%` }}></div>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="ps5-widget-value">{w.value}</div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <h1 className="game-title-active">{activeGame.name}</h1>
-                        <div className="game-meta-active">
-                          <span>
-                            Tipo: <span className="meta-pill">{activeGame.isCustom ? "Customizado" : "Steam"}</span>
-                          </span>
-                          <span>•</span>
-                          <span>{activeGame.isCustom ? "Atalho Local Executável" : `AppID: ${activeGame.appid}`}</span>
-                          <span>•</span>
-                          <span>Tempo Jogado: <span className="meta-pill">{playtimes[activeGame.appid]?.formatted || "< 1m"}</span></span>
-                        </div>
-                      </>
-                    )}
-                  </>
-                )}
-              </div>
-
-              {loading ? (
-                <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "300px" }}>
-                  <div className="spinner"></div>
-                </div>
-              ) : (
-                <div className="games-carousel-wrapper">
-                  <div className="games-carousel" ref={carouselRef}>
-                    {games.map((game, index) => {
-                      const isFocused = index === selectedGameIndex && focusArea === "carousel";
-                      const isErr = imageErrors[game.appid] || !game.image_url;
-
-                      return (
-                        <div
-                          key={game.appid}
-                          className={`game-card ${isFocused ? "focused" : ""}`}
-                          onClick={() => {
-                            setSelectedGameIndex(index);
-                            if (currentTheme === "atlas") {
-                              setActiveDetailGame(game);
-                              setDetailSelectedIndex(0);
-                            } else {
-                              if (isFocused) {
-                                handleTryLaunchGame(game);
-                              } else {
-                                setFocusArea("carousel");
-                              }
-                            }
-                          }}
-                        >
-
-                          {isErr ? (
-                            <div className="game-card-placeholder" style={{ background: getGradientBg(game.name) }}>
-                              <div className="placeholder-tag">{game.isCustom ? "Jogo Custom" : "Jogo Steam"}</div>
-                              <div className="placeholder-text">{game.name}</div>
-                            </div>
-                          ) : (
-                            <div className="game-card-img-wrapper">
-                              <img
-                                src={getGameImageUrl(game)}
-                                alt={game.name}
-                                className="game-card-img"
-                                onError={() => handleImageError(game.appid)}
-                              />
-                              <div className="game-card-overlay"></div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </main>
-
-      </div>
-
-      {/* Launching overlay screen */}
-      {launchingGame && (
-        <div className="launching-screen">
-          <div className="spinner"></div>
-          <h2 style={{ fontWeight: 600, fontSize: "1.8rem" }}>Iniciando {launchingGame.name}...</h2>
-          <p style={{ color: "var(--text-secondary)", marginTop: "0.5rem" }}>
-            {gamepadConnected ? "Processo iniciado no controle..." : "Executando processo secundário..."}
-          </p>
-        </div>
-      )}
-
-      {/* Settings Modal */}
-      <GamepadModal
-        isOpen={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        title="Configurações do Atlas"
-        tabs={[
-          { id: "geral", label: "Geral" },
-          { id: "custom", label: "Jogos Customizados" },
-          { id: "aparencia", label: "Aparência" },
-        ]}
-        activeTab={settingsTab}
-        onTabChange={(tabId) => setSettingsTab(tabId as any)}
-      >
-        {settingsTab === "geral" && (
-          <div className="playnite-tab-content">
-            <div className="playnite-tab-pane">
-              <div className="playnite-group">
-                <div className="playnite-group-title">Sistema</div>
-                <div className="playnite-form-grid">
-                  <div className="playnite-field full-width" style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                    <div className="settings-label">
-                      <span className="settings-label-title" style={{ display: "block", fontSize: "0.85rem", fontWeight: 600 }}>Iniciar como Shell do Windows</span>
-                      <span className="settings-label-desc" style={{ display: "block", fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "0.25rem" }}>
-                        Substitui o Explorer.exe pelo Atlas para este usuário, iniciando direto na sua biblioteca de jogos ao ligar o PC.
-                      </span>
-                    </div>
-                    <label className="switch">
-                      <input
-                        type="checkbox"
-                        checked={shellEnabled}
-                        onChange={(e) => handleToggleShell(e.target.checked)}
-                      />
-                      <span className="slider"></span>
-                    </label>
-                  </div>
-
-                  <div className="playnite-field full-width" style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: "1rem" }}>
-                    <div className="settings-label">
-                      <span className="settings-label-title" style={{ display: "block", fontSize: "0.85rem", fontWeight: 600 }}>Recarregar Biblioteca</span>
-                      <span className="settings-label-desc" style={{ display: "block", fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "0.25rem" }}>
-                        Força uma nova varredura nas pastas locais do Steam para detectar novos jogos instalados.
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() => { loadGames(); setSettingsOpen(false); }}
-                    >
-                      Recarregar
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {isSimulated && (
-                <div className="settings-alert" style={{ background: "rgba(234, 179, 8, 0.1)", border: "1px solid rgba(234, 179, 8, 0.2)", color: "#fef08a", padding: "1rem", borderRadius: "6px", fontSize: "0.8rem", lineHeight: "1.4" }}>
-                  ⚠️ <strong>Aviso:</strong> O Steam local ou a API do Tauri não foram detectados. A interface está exibindo jogos de teste e operando em modo de simulação. Instale o Rust e configure o app no Windows para habilitar o comportamento nativo.
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {settingsTab === "custom" && (
-          <div className="playnite-tab-content">
-            <div className="playnite-tab-pane">
-              <div className="playnite-group">
-                <div className="playnite-group-title">Jogos Customizados</div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
-                  <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-secondary)" }}>
-                    Gerencie seus atalhos manuais de jogos
-                  </span>
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    onClick={openAddGameModal}
-                  >
-                    + Adicionar Jogo
-                  </button>
-                </div>
-
-                {/* List of custom games */}
-                <div className="custom-games-list">
-                  <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "0.5rem", display: "block" }}>
-                    Jogos Adicionados ({customGames.length})
-                  </span>
-                  {customGames.length === 0 ? (
-                    <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", fontStyle: "italic", marginTop: "0.5rem" }}>
-                      Nenhum jogo customizado adicionado ainda.
-                    </div>
-                  ) : (
-                    customGames.map((game) => (
-                      <div key={game.appid} className="custom-game-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(0,0,0,0.2)", padding: "0.5rem 0.75rem", borderRadius: "6px", marginBottom: "0.5rem" }}>
-                        <div className="custom-game-item-info" style={{ display: "flex", flexDirection: "column", gap: "0.25rem", overflow: "hidden", textOverflow: "ellipsis", marginRight: "1rem" }}>
-                          <span className="custom-game-item-name" style={{ fontWeight: 600, fontSize: "0.85rem" }}>{game.name}</span>
-                          <span className="custom-game-item-path" title={game.exe_path} style={{ fontSize: "0.75rem", color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{game.exe_path}</span>
-                        </div>
-                        <button
-                          type="button"
-                          className="btn-delete"
-                          onClick={() => handleDeleteCustomGame(game.appid)}
-                          style={{ flexShrink: 0 }}
-                        >
-                          Excluir
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {settingsTab === "aparencia" && (
-          <div className="playnite-tab-content">
-            <div className="playnite-tab-pane">
-              <div className="playnite-group">
-                <div className="playnite-group-title">Personalização de Temas</div>
-                <div className="settings-row-theme-header" style={{ marginBottom: "1.5rem" }}>
-                  <span className="settings-label-title" style={{ fontSize: "0.85rem", fontWeight: 600, display: "block" }}>Selecione o Tema do Console</span>
-                  <span className="settings-label-desc" style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "0.25rem" }}>Altere o visual geral, cores, fontes e comportamento estético do Atlas Launcher.</span>
-                </div>
-                <div className="theme-selector-grid">
-                  <div
-                    tabIndex={0}
-                    className={`theme-selector-card ${currentTheme === "atlas" ? "active" : ""}`}
-                    onClick={() => setCurrentTheme("atlas")}
-                  >
-                    <div className="theme-preview-box atlas-theme-preview">
-                      <span className="preview-indicator"></span>
-                      <div className="theme-mini-logo">ATLAS</div>
-                      <div className="theme-color-dots">
-                        <span style={{ background: "#06b6d4" }}></span>
-                        <span style={{ background: "#3b82f6" }}></span>
-                        <span style={{ background: "#8b5cf6" }}></span>
-                      </div>
-                    </div>
-                    <div className="theme-card-title">Atlas (Padrão)</div>
-                  </div>
-
-                  <div
-                    tabIndex={0}
-                    className={`theme-selector-card ${currentTheme === "ps5" ? "active" : ""}`}
-                    onClick={() => setCurrentTheme("ps5")}
-                  >
-                    <div className="theme-preview-box ps5-theme-preview">
-                      <span className="preview-indicator"></span>
-                      <div className="theme-mini-logo">PS5</div>
-                      <div className="theme-color-dots">
-                        <span style={{ background: "#0072CE" }}></span>
-                        <span style={{ background: "#ffffff" }}></span>
-                        <span style={{ background: "#0a0a0c" }}></span>
-                      </div>
-                    </div>
-                    <div className="theme-card-title">PlayStation 5</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="playnite-edit-footer">
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => setSettingsOpen(false)}
-          >
-            Fechar [ESC]
-          </button>
-        </div>
-      </GamepadModal>
-
-      {/* Options Menu Modal */}
-      {optionsMenuGame && (
-        <div className="options-overlay" onClick={() => setOptionsMenuGame(null)}>
-          <div className="options-card" onClick={(e) => e.stopPropagation()}>
-            <div className="options-header">
-              <span className="options-subtitle">Opções de Jogo</span>
-              <h2 className="options-title">{optionsMenuGame.name}</h2>
-            </div>
-
-            <div className="options-list">
-              <button
-                className={`options-btn play-btn ${optionsMenuSelectedIndex === 0 ? "focused" : ""}`}
-                onClick={() => triggerOption("play", optionsMenuGame)}
-                onMouseEnter={() => setOptionsMenuSelectedIndex(0)}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-                Iniciar Jogo
-              </button>
-
-              {optionsMenuGame.isCustom ? (
-                <>
-                  <button
-                    className={`options-btn edit-btn ${optionsMenuSelectedIndex === 1 ? "focused" : ""}`}
-                    onClick={() => triggerOption("edit", optionsMenuGame)}
-                    onMouseEnter={() => setOptionsMenuSelectedIndex(1)}
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <path d="M12 20h9" />
-                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                    </svg>
-                    Editar
-                  </button>
-
-                  <button
-                    className={`options-btn delete-btn ${optionsMenuSelectedIndex === 2 ? "focused" : ""}`}
-                    onClick={() => triggerOption("delete", optionsMenuGame)}
-                    onMouseEnter={() => setOptionsMenuSelectedIndex(2)}
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <polyline points="3 6 5 6 21 6" />
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                      <line x1="10" y1="11" x2="10" y2="17" />
-                      <line x1="14" y1="11" x2="14" y2="17" />
-                    </svg>
-                    Excluir
-                  </button>
-
-                  <button
-                    className={`options-btn cancel-btn ${optionsMenuSelectedIndex === 3 ? "focused" : ""}`}
-                    onClick={() => triggerOption("cancel", optionsMenuGame)}
-                    onMouseEnter={() => setOptionsMenuSelectedIndex(3)}
-                  >
-                    Voltar
-                  </button>
-                </>
-              ) : (
-                <button
-                  className={`options-btn cancel-btn ${optionsMenuSelectedIndex === 1 ? "focused" : ""}`}
-                  onClick={() => triggerOption("cancel", optionsMenuGame)}
-                  onMouseEnter={() => setOptionsMenuSelectedIndex(1)}
-                >
-                  Voltar
-                </button>
-              )}
-            </div>
-
-            {gamepadConnected && (
-              <div className="modal-gamepad-hints">
-                <span className="yt-hint"><span className="yt-hint-key">D-Pad ↕</span> Navegar</span>
-                <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "✕" : "A"}</span> Confirmar</span>
-                <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "○" : "B"}</span> Voltar</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Edit Game Modal */}
-      <GamepadModal
-        isOpen={editingGame !== null}
-        onClose={() => setEditingGame(null)}
-        title={editingGame ? `Editar - ${editingGame.name}` : ""}
-        tabs={[
-          { id: "general", label: "Geral" },
-          { id: "advanced", label: "Avançado" },
-          { id: "media", label: "Mídia" },
-        ]}
-        activeTab={editTab}
-        onTabChange={(tabId) => setEditTab(tabId as any)}
-      >
-        {editingGame && (
-          <form className="playnite-edit-form" onSubmit={handleEditCustomGameSubmit}>
-            <div className="playnite-tab-content">
-              {editTab === "general" && (
-                <div className="playnite-tab-pane">
-                  <div className="playnite-group">
-                    <div className="playnite-group-title">Informações Básicas</div>
-                    <div className="playnite-form-grid">
-                      <div className="playnite-field full-width">
-                        <label>Nome do Jogo *</label>
-                        <div className="playnite-input-wrapper">
-                          <input
-                            type="text"
-                            placeholder="Ex: Cyberpunk 2077"
-                            value={editName}
-                            onChange={(e) => setEditName(e.target.value)}
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <div className="playnite-field">
-                        <label>Plataforma</label>
-                        <div className="playnite-input-wrapper">
-                          <input
-                            type="text"
-                            value={editingGame.isCustom ? "Manual (PC)" : "Steam"}
-                            readOnly
-                          />
-                        </div>
-                      </div>
-
-                      <div className="playnite-field">
-                        <label>ID do Jogo</label>
-                        <div className="playnite-input-wrapper">
-                          <input
-                            type="text"
-                            value={editingGame.appid}
-                            readOnly
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="playnite-group">
-                    <div className="playnite-group-title">Instalação</div>
-                    <div className="playnite-form-grid">
-                      <div className="playnite-field full-width">
-                        <label>Arquivo Executável *</label>
-                        <div className="playnite-input-wrapper">
-                          <input
-                            type="text"
-                            placeholder="Escolha o arquivo .exe do jogo"
-                            value={editExe}
-                            onChange={(e) => setEditExe(e.target.value)}
-                            required
-                            readOnly
-                          />
-                          <button type="button" className="btn-secondary" onClick={handleEditPickExe}>
-                            Buscar
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="playnite-field full-width">
-                        <label>Pasta de Instalação</label>
-                        <div className="playnite-input-wrapper">
-                          <input
-                            type="text"
-                            value={editingGame.installdir || "Não especificada"}
-                            readOnly
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {editTab === "advanced" && (
-                <div className="playnite-tab-pane">
-                  <div className="playnite-group">
-                    <div className="playnite-group-title">Rastreamento & Execução</div>
-                    <div className="playnite-form-grid">
-                      <div className="playnite-field full-width">
-                        <label>Argumentos de Inicialização</label>
-                        <div className="playnite-input-wrapper">
-                          <input
-                            type="text"
-                            placeholder="Ex: -windowed -noborder"
-                            disabled
-                          />
-                        </div>
-                      </div>
-
-                      <div className="playnite-field full-width">
-                        <label>Diretório de Trabalho (Auto)</label>
-                        <div className="playnite-input-wrapper">
-                          <input
-                            type="text"
-                            value={editExe ? editExe.substring(0, editExe.lastIndexOf("\\")) : "Automático"}
-                            readOnly
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="playnite-group">
-                    <div className="playnite-group-title">Estatísticas</div>
-                    <div className="playnite-form-grid">
-                      <div className="playnite-field">
-                        <label>Tempo Total Jogado</label>
-                        <div className="playnite-input-wrapper">
-                          <input
-                            type="text"
-                            value={playtimes[editingGame.appid]?.formatted || "0h 0m"}
-                            readOnly
-                          />
-                        </div>
-                      </div>
-
-                      <div className="playnite-field">
-                        <label>Último Acesso</label>
-                        <div className="playnite-input-wrapper">
-                          <input
-                            type="text"
-                            value={editingGame.last_played ? new Date(editingGame.last_played).toLocaleString() : "Nunca jogado"}
-                            readOnly
-                          />
-                        </div>
-                      </div>
-
-                      <div className="playnite-field full-width">
-                        <label>Data Adicionado à Biblioteca</label>
-                        <div className="playnite-input-wrapper">
-                          <input
-                            type="text"
-                            value={editingGame.added_at ? new Date(editingGame.added_at).toLocaleString() : "Desconhecido"}
-                            readOnly
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {editTab === "media" && (
-                <div className="playnite-tab-pane">
-                  <div className="playnite-group">
-                    <div className="playnite-group-title">Arquivos de Mídia</div>
-                    <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: "1.25rem" }}>
-                      Clique em um dos cartões de mídia abaixo para buscar e escolher imagens na internet em segundo plano.
-                    </p>
-
-                    <div className="playnite-media-previews">
-                      <div
-                        tabIndex={0}
-                        role="button"
-                        className="playnite-media-preview-box clickable focusable"
-                        onClick={() => handleOpenImagePicker("cover")}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            handleOpenImagePicker("cover");
-                          }
-                        }}
-                        title="Clique ou pressione Enter para buscar capas para este jogo"
-                      >
-                        <span className="preview-label">Visualização Capa 🔍</span>
-                        <div className="preview-image-container">
-                          {editImg ? (
-                            <img
-                              src={editImg.startsWith("http") || editImg.startsWith("data:") ? editImg : convertFileSrc(editImg)}
-                              alt="Capa"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = "";
-                              }}
-                            />
-                          ) : (
-                            <div className="preview-placeholder">Clique para Buscar Capa</div>
-                          )}
-                          <div className="preview-overlay-badge">Alterar Capa</div>
-                        </div>
-                      </div>
-
-                      <div
-                        tabIndex={0}
-                        role="button"
-                        className="playnite-media-preview-box clickable focusable"
-                        onClick={() => handleOpenImagePicker("background")}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            handleOpenImagePicker("background");
-                          }
-                        }}
-                        title="Clique ou pressione Enter para buscar imagens de fundo"
-                      >
-                        <span className="preview-label">Background / Hero 🔍</span>
-                        <div className="preview-image-container">
-                          {editBg ? (
-                            <img
-                              src={editBg.startsWith("http") || editBg.startsWith("data:") ? editBg : convertFileSrc(editBg)}
-                              alt="Background"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = "";
-                              }}
-                            />
-                          ) : (
-                            <div className="preview-placeholder">Clique para Buscar Background</div>
-                          )}
-                          <div className="preview-overlay-badge">Alterar Background</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="playnite-edit-footer">
-              <button type="button" className="btn-secondary" onClick={() => setEditingGame(null)}>
-                Cancelar
-              </button>
-              <button type="submit" className="btn-primary" disabled={editingSearchingIgdb}>
-                {editingSearchingIgdb ? "Buscando Capa..." : "Salvar Alterações"}
-              </button>
-            </div>
-          </form>
-        )}
-      </GamepadModal>
-
-      {/* Xbox-Style Add Game Modal using GamepadModal */}
-      <GamepadModal
-        isOpen={addGameModalOpen}
-        onClose={() => setAddGameModalOpen(false)}
-        title="Adicionar Jogo à Biblioteca"
-        className="add-game-card"
-      >
-        <div className="add-game-layout">
-          {/* Left Column: Installed Apps List & Disk Filter Chips */}
-          <div className="add-game-list-section">
-            {/* Horizontal Filter Chips Bar */}
-            <div className="disk-filter-chips-bar">
-              <button
-                type="button"
-                className={`disk-filter-pill ${
-                  availableDrives.length > 0 && availableDrives.every((d) => selectedDrives[d] !== false) ? "active" : ""
-                }`}
-                onClick={() => {
-                  const allActive = availableDrives.every((d) => selectedDrives[d] !== false);
-                  const updated: Record<string, boolean> = {};
-                  availableDrives.forEach((d) => {
-                    updated[d] = !allActive;
-                  });
-                  setSelectedDrives(updated);
+            {loading ? (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  height: "300px",
                 }}
               >
-                Todos Discos
-              </button>
-
-              {availableDrives.map((drive) => {
-                const isEnabled = selectedDrives[drive] !== false;
-                return (
-                  <button
-                    key={drive}
-                    type="button"
-                    className={`disk-filter-pill ${isEnabled ? "active" : ""}`}
-                    onClick={() => {
-                      setSelectedDrives((prev) => ({
-                        ...prev,
-                        [drive]: !isEnabled,
-                      }));
-                    }}
-                  >
-                    Disco {drive}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "1rem" }}>
-              <div className="search-wrapper" style={{ flex: 1, position: "relative" }}>
-                <input
-                  id="add-game-search-input"
-                  type="text"
-                  placeholder="Pesquisar jogos instalados..."
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setDetectedSelectedIndex(0);
-                  }}
-                  className={addGameSelectedIndex === 0 ? "focused" : ""}
-                />
-                <span className="search-icon-hint">🔍</span>
+                <div className="spinner" />
               </div>
-
-              <button
-                id="add-game-manual-browse-btn"
-                type="button"
-                title="Procurar pasta do jogo manualmente"
-                className={`btn-secondary browse-folder-btn ${addGameSelectedIndex === 1 ? "focused" : ""}`}
-                onClick={handlePickExe}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="detected-apps-list" ref={detectedListRef}>
-              {loadingApps ? (
-                <div className="apps-list-empty">Buscando jogos instalados no PC...</div>
-              ) : (() => {
-                const fApps = installedApps.filter((app) => {
-                  const matchesSearch = app.name.toLowerCase().includes(searchQuery.toLowerCase());
-                  if (!matchesSearch) return false;
-                  const appPathUpper = app.path.toUpperCase();
-                  const activeDrives = Object.keys(selectedDrives).filter((d) => selectedDrives[d] !== false);
-                  if (activeDrives.length === 0) return false;
-                  return activeDrives.some((d) => appPathUpper.startsWith(d.toUpperCase()));
-                });
-                if (fApps.length === 0) {
-                  return <div className="apps-list-empty">Nenhum jogo encontrado para os discos ativos.</div>;
-                }
-                return fApps.map((app, index) => {
-                  const isSelected = addGameSelectedIndex === 2 && detectedSelectedIndex === index;
-                  return (
-                    <div
-                      key={app.path + "-" + index}
-                      id={`detected-app-item-${index}`}
-                      tabIndex={0}
-                      className={`detected-app-item ${isSelected ? "focused" : ""}`}
-                      onClick={() => {
-                        setCustomName(app.name);
-                        setCustomExe(app.path);
-                        setAddGameSelectedIndex(7);
-                      }}
-                    >
-                      <div className="app-icon-placeholder">🎮</div>
-                      <div className="app-info">
-                        <span className="app-name">{app.name}</span>
-                        <span className="app-path" title={app.path}>{app.path}</span>
-                      </div>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-          </div>
-
-          {/* Right Column: Selected Game Preview & Confirmation */}
-          <div className="add-game-form-section">
-            <div style={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-              <div className="playnite-group" style={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                <div>
-                  <div className="playnite-group-title" style={{ color: "var(--accent-cyan)", marginBottom: "0.75rem" }}>
-                    Jogo Selecionado
-                  </div>
-                  {customExe ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", background: "rgba(0, 0, 0, 0.25)", padding: "1.25rem", borderRadius: "12px", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                        <div style={{ width: "48px", height: "48px", borderRadius: "8px", background: "rgba(6, 182, 212, 0.15)", border: "1px solid var(--accent-cyan)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.5rem" }}>
-                          🎮
-                        </div>
-                        <div>
-                          <span style={{ fontWeight: 700, fontSize: "1.05rem", color: "#ffffff", display: "block" }}>{customName}</span>
-                          <span style={{ fontSize: "0.75rem", color: "var(--accent-cyan)", fontWeight: 600 }}>Pronto para Adicionar</span>
-                        </div>
-                      </div>
-
-                      <div style={{ borderTop: "1px solid rgba(255, 255, 255, 0.08)", paddingTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
-                        <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 600 }}>Caminho Executável:</span>
-                        <span style={{ fontSize: "0.75rem", color: "#ffffff", wordBreak: "break-all", fontFamily: "monospace", background: "rgba(0,0,0,0.3)", padding: "0.4rem 0.6rem", borderRadius: "6px" }}>{customExe}</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2.5rem 1rem", background: "rgba(0, 0, 0, 0.2)", borderRadius: "12px", border: "1px dashed rgba(255, 255, 255, 0.15)", textAlign: "center", gap: "0.75rem" }}>
-                      <span style={{ fontSize: "2rem" }}>🎯</span>
-                      <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
-                        Selecione um jogo na lista à esquerda ou use a busca para encontrar seu jogo instalados no PC.
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                <form onSubmit={handleAddCustomGameSubmit} style={{ marginTop: "1.5rem" }}>
-                  <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
-                    <button
-                      id="add-game-cancel-btn"
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() => setAddGameModalOpen(false)}
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      id="add-game-submit-btn"
-                      type="submit"
-                      className="btn-primary"
-                      disabled={!customExe}
-                    >
-                      + Adicionar à Biblioteca
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-        </div>
-      </GamepadModal>
-
-      {/* File Explorer Modal */}
-      {fileExplorerOpen && (
-        <div className="settings-overlay file-explorer-overlay" onClick={() => setFileExplorerOpen(false)}>
-          <div className="settings-card file-explorer-card" onClick={(e) => e.stopPropagation()}>
-            <h2>Explorador de Arquivos Atlas</h2>
-
-            <div className="file-explorer-header-bar">
-              <div className="file-explorer-path-bar">
-                <span>Caminho:</span>
-                <strong>{fileExplorerPath || "Meu Computador (Unidades de Disco)"}</strong>
-              </div>
-
-              {availableDrives.length > 0 && (
-                <div className="drive-selector-bar">
-                  <span className="drive-selector-label">Mudar Disco:</span>
-                  <button
-                    type="button"
-                    className={`drive-pill ${fileExplorerPath === "" ? "active" : ""}`}
-                    onClick={() => navigateToPath("")}
-                  >
-                    💾 Todos Discos
-                  </button>
-                  {availableDrives.map((drive) => (
-                    <button
-                      key={drive}
-                      type="button"
-                      className={`drive-pill ${fileExplorerPath.toUpperCase().startsWith(drive.toUpperCase()) ? "active" : ""}`}
-                      onClick={() => navigateToPath(drive)}
-                    >
-                      💾 {drive}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div
-              className="file-explorer-list"
-              ref={fileExplorerListRef}
-            >
-              {fileExplorerItems.length === 0 ? (
-                <div className="file-explorer-empty">Nenhum arquivo ou pasta compatível encontrado nesta pasta.</div>
-              ) : (
-                fileExplorerItems.map((item, index) => {
-                  const isSelected = fileExplorerSelectedIndex === index;
-                  let icon = "📁";
-                  if (item.path === "..") {
-                    icon = "↩️";
-                  } else if (!item.is_dir) {
-                    const ext = item.path.split('.').pop()?.toLowerCase();
-                    if (ext === "exe" || ext === "sh" || ext === "bin") {
-                      icon = "🎮";
-                    } else if (["png", "jpg", "jpeg", "webp"].includes(ext || "")) {
-                      icon = "🖼️";
-                    } else {
-                      icon = "📄";
-                    }
-                  } else if (fileExplorerPath === "") {
-                    icon = "💾";
-                  }
-
-                  return (
-                    <div
-                      key={item.path + "-" + index}
-                      id={`file-explorer-item-${index}`}
-                      tabIndex={0}
-                      className={`file-explorer-item ${isSelected ? "focused" : ""}`}
-                      onClick={() => handleFileExplorerSelect(item)}
-                    >
-                      <span className="file-explorer-icon">{icon}</span>
-                      <span className="file-explorer-name">{item.name}</span>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            <div className="settings-footer" style={{ marginTop: "1rem" }}>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => setFileExplorerOpen(false)}
-              >
-                Fechar
-              </button>
-            </div>
-
-            {gamepadConnected && (
-              <div className="modal-gamepad-hints" style={{ marginTop: "1.25rem" }}>
-                <span className="yt-hint"><span className="yt-hint-key">⇅</span> Navegar</span>
-                <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "✕" : "A"}</span> Entrar / Selecionar</span>
-                <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "○" : "B"}</span> Voltar</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Image Picker Gallery Modal */}
-      <GamepadModal
-        isOpen={imagePickerOpen}
-        onClose={() => setImagePickerOpen(false)}
-        title={imagePickerTarget === "cover" ? `Buscar Capas: ${editName}` : `Buscar Backgrounds: ${editName}`}
-      >
-        <div className="image-picker-container">
-          <div className="image-picker-header">
-            <div className="search-wrapper" style={{ display: "flex", gap: "0.5rem", width: "100%" }}>
-              <input
-                type="text"
-                value={imagePickerQuery}
-                onChange={(e) => setImagePickerQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handlePerformImageSearch();
-                  }
-                }}
-                placeholder="Digitar termo de busca..."
-                style={{ flex: 1, padding: "0.5rem 0.75rem", borderRadius: "6px", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff" }}
+            ) : (
+              <GameCarousel
+                games={games}
+                selectedGameIndex={selectedGameIndex}
+                focusArea={focusArea}
+                imageErrors={imageErrors}
+                carouselRef={carouselRef}
+                onSelectGame={handleSelectGameInCarousel}
+                onImageError={handleImageError}
               />
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => handlePerformImageSearch()}
-                disabled={imagePickerLoading}
-              >
-                {imagePickerLoading ? "Buscando..." : "Buscar"}
-              </button>
-            </div>
-          </div>
+            )}
+          </>
+        )
+      }
+      launchingOverlay={
+        <LaunchingOverlay
+          launchingGame={launchingGame}
+          gamepadConnected={gamepadConnected}
+        />
+      }
+      modals={
+        <>
+          <SettingsModal
+            isOpen={settingsOpen}
+            settingsTab={settingsTab}
+            shellEnabled={shellEnabled}
+            isSimulated={isSimulated}
+            customGames={customGames}
+            currentTheme={currentTheme}
+            onClose={() => setSettingsOpen(false)}
+            onTabChange={setSettingsTab}
+            onToggleShell={handleToggleShell}
+            onReloadLibrary={loadGames}
+            onOpenAddGameModal={openAddGameModal}
+            onDeleteCustomGame={handleDeleteCustomGame}
+            onSelectTheme={setCurrentTheme}
+          />
 
-          {imagePickerLoading ? (
-            <div className="image-picker-loading-state">
-              <div className="spinner"></div>
-              <span>Buscando imagens em segundo plano...</span>
-            </div>
-          ) : imagePickerResults.length === 0 ? (
-            <div className="image-picker-empty-state">
-              <span>Nenhuma imagem encontrada para "{imagePickerQuery}".</span>
-              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-                Tente alterar o termo de busca acima e clicar em Buscar.
-              </span>
-            </div>
-          ) : (
-            <div className="image-picker-grid">
-              {imagePickerResults.map((url, idx) => (
-                <div
-                  key={url + "-" + idx}
-                  tabIndex={0}
-                  role="button"
-                  className={`image-picker-card focusable ${imagePickerSelectedIndex === idx ? "focused" : ""}`}
-                  onClick={() => handleSelectImage(url)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      handleSelectImage(url);
-                    }
-                  }}
-                  onMouseEnter={() => setImagePickerSelectedIndex(idx)}
-                >
-                  <img
-                    src={url}
-                    alt={`Opção ${idx + 1}`}
-                    loading="lazy"
-                    onError={(e) => {
-                      const card = (e.target as HTMLImageElement).parentElement;
-                      if (card) card.classList.add("hidden-img");
-                    }}
-                  />
-                  <div className="image-picker-card-overlay">
-                    <span>Selecionar</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </GamepadModal>
-    </div>
+          <OptionsMenuModal
+            optionsMenuGame={optionsMenuGame}
+            optionsMenuSelectedIndex={optionsMenuSelectedIndex}
+            gamepadConnected={gamepadConnected}
+            currentTheme={currentTheme}
+            onClose={() => setOptionsMenuGame(null)}
+            onTriggerOption={triggerOption}
+            setOptionsMenuSelectedIndex={setOptionsMenuSelectedIndex}
+          />
+
+          <EditGameModal
+            editingGame={editingGame}
+            editName={editName}
+            editExe={editExe}
+            editImg={editImg}
+            editBg={editBg}
+            editTab={editTab}
+            editingSearchingIgdb={editingSearchingIgdb}
+            playtimes={playtimes}
+            onClose={() => setEditingGame(null)}
+            onTabChange={setEditTab}
+            setEditName={setEditName}
+            setEditExe={setEditExe}
+            onPickExe={handleEditPickExe}
+            onSubmit={handleEditCustomGameSubmit}
+            onOpenImagePicker={handleOpenImagePicker}
+          />
+
+          <AddGameModal
+            isOpen={addGameModalOpen}
+            availableDrives={availableDrives}
+            selectedDrives={selectedDrives}
+            searchQuery={searchQuery}
+            installedApps={installedApps}
+            loadingApps={loadingApps}
+            addGameSelectedIndex={addGameSelectedIndex}
+            detectedSelectedIndex={detectedSelectedIndex}
+            customName={customName}
+            customExe={customExe}
+            detectedListRef={detectedListRef}
+            onClose={() => setAddGameModalOpen(false)}
+            setSelectedDrives={setSelectedDrives}
+            setSearchQuery={setSearchQuery}
+            setDetectedSelectedIndex={setDetectedSelectedIndex}
+            setAddGameSelectedIndex={setAddGameSelectedIndex}
+            setCustomName={setCustomName}
+            setCustomExe={setCustomExe}
+            onPickExe={handlePickExe}
+            onSubmit={handleAddCustomGameSubmit}
+          />
+
+          <FileExplorerModal
+            fileExplorerOpen={fileExplorerOpen}
+            fileExplorerPath={fileExplorerPath}
+            availableDrives={availableDrives}
+            fileExplorerItems={fileExplorerItems}
+            fileExplorerSelectedIndex={fileExplorerSelectedIndex}
+            gamepadConnected={gamepadConnected}
+            currentTheme={currentTheme}
+            fileExplorerListRef={fileExplorerListRef}
+            onClose={() => setFileExplorerOpen(false)}
+            onNavigateToPath={navigateToPath}
+            onSelectFileExplorerItem={handleFileExplorerSelect}
+          />
+
+          <ImagePickerModal
+            isOpen={imagePickerOpen}
+            editName={editName}
+            imagePickerTarget={imagePickerTarget}
+            imagePickerQuery={imagePickerQuery}
+            imagePickerLoading={imagePickerLoading}
+            imagePickerResults={imagePickerResults}
+            imagePickerSelectedIndex={imagePickerSelectedIndex}
+            onClose={() => setImagePickerOpen(false)}
+            setImagePickerQuery={setImagePickerQuery}
+            onPerformImageSearch={handlePerformImageSearch}
+            onSelectImage={handleSelectImage}
+            setImagePickerSelectedIndex={setImagePickerSelectedIndex}
+          />
+        </>
+      }
+    />
   );
 }
 
