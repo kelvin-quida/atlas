@@ -722,6 +722,25 @@ const YOUTUBE_TV_INIT_SCRIPT: &str = r#"
     if (window.__ATLAS_TV_INJECTED) return;
     window.__ATLAS_TV_INJECTED = true;
 
+    // Inject high quality display overrides
+    const injectStyles = () => {
+        const style = document.createElement('style');
+        style.id = 'atlas-tv-sharpness';
+        style.textContent = `
+            html, body, #app {
+                -webkit-font-smoothing: antialiased !important;
+                -moz-osx-font-smoothing: grayscale !important;
+                text-rendering: optimizeLegibility !important;
+            }
+            img {
+                image-rendering: -webkit-optimize-contrast !important;
+            }
+        `;
+        if (document.head) document.head.appendChild(style);
+        else document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));
+    };
+    injectStyles();
+
     function simulateKey(key, code, keyCode) {
         const target = document.activeElement || document.body;
         const opts = {
@@ -757,7 +776,7 @@ const YOUTUBE_TV_INIT_SCRIPT: &str = r#"
         }
     };
 
-    console.log('[Atlas] YouTube TV gamepad bridge injected.');
+    console.log('[Atlas] YouTube TV gamepad bridge & sharpness injected.');
 })();
 "#;
 
@@ -771,23 +790,21 @@ async fn open_youtube_webview(app: tauri::AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    let scale_factor = main_window.scale_factor().map_err(|e| e.to_string())?;
     let size = main_window.inner_size().map_err(|e| e.to_string())?;
-    let header_height_physical = (60.0 * scale_factor) as u32;
 
     let webview_builder = tauri::WebviewBuilder::new(
         "youtube",
         tauri::WebviewUrl::External(tauri::Url::parse("https://www.youtube.com/tv").unwrap()),
     )
-    .user_agent("Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Version/5.0 TV Safari/537.36")
+    .user_agent("Mozilla/5.0 (PS4; Leanback Shell) Cobalt/24.lts.13.1032728-gold v8/8.8.278.8-jit gles Starboard/14, SystemIntegratorName_PS4_ChipsetModelNumber_2024/FirmwareVersion (Sony, PS4, Wired)")
     .initialization_script(YOUTUBE_TV_INIT_SCRIPT)
     .auto_resize();
 
     main_window
         .add_child(
             webview_builder,
-            tauri::PhysicalPosition::new(0, header_height_physical as i32),
-            tauri::PhysicalSize::new(size.width, size.height.saturating_sub(header_height_physical)),
+            tauri::PhysicalPosition::new(0, 0),
+            tauri::PhysicalSize::new(size.width, size.height),
         )
         .map_err(|e| e.to_string())?;
 
@@ -812,6 +829,14 @@ async fn close_youtube_webview(app: tauri::AppHandle) -> Result<(), String> {
         webview.close().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[tauri::command]
+async fn toggle_fullscreen(window: tauri::Window) -> Result<bool, String> {
+    let is_fullscreen = window.is_fullscreen().map_err(|e| e.to_string())?;
+    let new_state = !is_fullscreen;
+    window.set_fullscreen(new_state).map_err(|e| e.to_string())?;
+    Ok(new_state)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -862,18 +887,8 @@ pub fn run() {
             if let tauri::WindowEvent::Resized(size) = event {
                 if window.label() == "main" {
                     if let Some(youtube) = window.get_webview("youtube") {
-                        if let Ok(scale_factor) = window.scale_factor() {
-                            let header_height_physical = (60.0 * scale_factor) as u32;
-                            if size.height > header_height_physical {
-                                let _ = youtube.set_position(tauri::PhysicalPosition::new(
-                                    0, header_height_physical as i32,
-                                ));
-                                let _ = youtube.set_size(tauri::PhysicalSize::new(
-                                    size.width,
-                                    size.height - header_height_physical,
-                                ));
-                            }
-                        }
+                        let _ = youtube.set_position(tauri::PhysicalPosition::new(0, 0));
+                        let _ = youtube.set_size(tauri::PhysicalSize::new(size.width, size.height));
                     }
                 }
             }
@@ -907,6 +922,7 @@ pub fn run() {
             open_youtube_webview,
             close_youtube_webview,
             youtube_gamepad_action,
+            toggle_fullscreen,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

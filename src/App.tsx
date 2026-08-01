@@ -915,6 +915,12 @@ function App() {
   // Keyboard navigation for carousel and header buttons
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "F11" || (e.altKey && e.key === "Enter")) {
+        e.preventDefault();
+        invoke("toggle_fullscreen").catch(console.error);
+        return;
+      }
+
       if (settingsOpen || launchingGame || loading || optionsMenuGame || editingGame) return;
 
       if (youtubeActive) {
@@ -1385,47 +1391,7 @@ function App() {
 
   return (
     <div className="app-root">
-      {youtubeActive && (
-        <div className="youtube-header-bar">
-          <div className="youtube-header-title">
-            <span className="youtube-logo-red">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
-              </svg>
-            </span>
-            <span className="youtube-header-text">YouTube</span>
-          </div>
 
-          {gamepadConnected && (
-            <div className="youtube-gamepad-hints">
-              <span className="yt-hint"><span className="yt-hint-key">D-Pad</span> Navegar</span>
-              <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "✕" : "A"}</span> Selecionar</span>
-              <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "○" : "B"}</span> Voltar</span>
-              <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "△" : "Y"}</span> Play/Pause</span>
-              <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "□" : "X"}</span> Fullscreen</span>
-              <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "L1/R1" : "LB/RB"}</span> Seek</span>
-              <span className="yt-hint"><span className="yt-hint-key">{currentTheme === "ps5" ? "L2/R2" : "LT/RT"}</span> Volume</span>
-            </div>
-          )}
-
-          <button className="youtube-back-btn" onClick={handleCloseYouTube}>
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-            {gamepadConnected ? (currentTheme === "ps5" ? "Options" : "Start") : "ESC"} — Voltar
-          </button>
-        </div>
-      )}
       {/* Blurred ambient theme bg */}
       <div
         className="ambient-bg"
