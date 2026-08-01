@@ -74,13 +74,34 @@ function App() {
   const { gamepadConnected, registerLayerHandler } = useGamepad();
   const [youtubeActive, setYoutubeActive] = useState(false);
   const [twitchActive, setTwitchActive] = useState(false);
+  const [activeDetailGame, setActiveDetailGame] = useState<SteamGame | null>(null);
+  const [detailSelectedIndex, setDetailSelectedIndex] = useState<number>(0);
+
+  // Reset activeDetailGame on theme change
+  useEffect(() => {
+    setActiveDetailGame(null);
+  }, [currentTheme]);
+
+  // Keep activeDetailGame synced with latest games data
+  useEffect(() => {
+    if (activeDetailGame) {
+      const updated = games.find((g) => g.appid === activeDetailGame.appid);
+      if (updated) {
+        setActiveDetailGame(updated);
+      }
+    }
+  }, [games]);
+
+  // Update ambient background when detail page opens
+  useEffect(() => {
+    if (activeDetailGame && activeDetailGame.image_url) {
+      setAmbientBgUrl(getGameImageUrl(activeDetailGame));
+    }
+  }, [activeDetailGame]);
 
   // Playtime Tracking States (Phase 5)
   const [playtimes, setPlaytimes] = useState<Record<string, { total_seconds: number; formatted: string }>>({});
   const activeSessionIdRef = useRef<number | null>(null);
-
-
-
 
   // States for options menu and editing
   const [optionsMenuGame, setOptionsMenuGame] = useState<SteamGame | null>(null);
@@ -127,6 +148,37 @@ function App() {
   const carouselRef = useRef<HTMLDivElement>(null);
   const igdbAttemptsRef = useRef<Record<string, boolean>>({});
 
+  // Keyboard navigation for Game Detail Page
+  useEffect(() => {
+    if (!activeDetailGame) return;
+    const handleDetailKeys = (e: KeyboardEvent) => {
+      if (settingsOpen || launchingGame || loading || optionsMenuGame || editingGame || addGameModalOpen || fileExplorerOpen) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setActiveDetailGame(null);
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setDetailSelectedIndex((prev) => (prev > 0 ? prev - 1 : 1));
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        setDetailSelectedIndex((prev) => (prev < 1 ? prev + 1 : 0));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (detailSelectedIndex === 0) {
+          handleTryLaunchGame(activeDetailGame);
+        } else if (detailSelectedIndex === 1) {
+          setOptionsMenuGame(activeDetailGame);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleDetailKeys);
+    return () => window.removeEventListener("keydown", handleDetailKeys);
+  }, [activeDetailGame, detailSelectedIndex, settingsOpen, launchingGame, loading, optionsMenuGame, editingGame, addGameModalOpen, fileExplorerOpen]);
+
+
+
+
+
 
   // Ref to hold current state values for the gamepad loop
   const stateRef = useRef({
@@ -152,7 +204,9 @@ function App() {
     addGameSelectedIndex,
     detectedSelectedIndex,
     installedApps,
-    searchQuery
+    searchQuery,
+    activeDetailGame,
+    detailSelectedIndex,
   });
 
   // Sync state values with ref
@@ -180,9 +234,12 @@ function App() {
       addGameSelectedIndex,
       detectedSelectedIndex,
       installedApps,
-      searchQuery
+      searchQuery,
+      activeDetailGame,
+      detailSelectedIndex,
     };
-  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, youtubeActive, twitchActive, optionsMenuGame, optionsMenuSelectedIndex, editingGame, customGames, focusArea, headerSelectedIndex, settingsTab, currentTheme, fileExplorerOpen, fileExplorerSelectedIndex, fileExplorerItems, addGameModalOpen, addGameSelectedIndex, detectedSelectedIndex, installedApps, searchQuery]);
+  }, [games, selectedGameIndex, settingsOpen, launchingGame, loading, youtubeActive, twitchActive, optionsMenuGame, optionsMenuSelectedIndex, editingGame, customGames, focusArea, headerSelectedIndex, settingsTab, currentTheme, fileExplorerOpen, fileExplorerSelectedIndex, fileExplorerItems, addGameModalOpen, addGameSelectedIndex, detectedSelectedIndex, installedApps, searchQuery, activeDetailGame, detailSelectedIndex]);
+
 
   const handleOpenYouTube = async () => {
     try {
@@ -1153,6 +1210,9 @@ function App() {
         detectedSelectedIndex: detectedIdx,
         installedApps: instApps,
         searchQuery: sQuery,
+        currentTheme: theme,
+        activeDetailGame: detailGame,
+        detailSelectedIndex: detailIdx,
       } = stateRef.current;
 
       if (isLoading || isLaunching) return true;
@@ -1293,6 +1353,25 @@ function App() {
         return true;
       }
 
+      if (detailGame && theme === "atlas") {
+        if (actions.b) {
+          setActiveDetailGame(null);
+        } else if (actions.left) {
+          setDetailSelectedIndex((prev) => (prev > 0 ? prev - 1 : 1));
+        } else if (actions.right) {
+          setDetailSelectedIndex((prev) => (prev < 1 ? prev + 1 : 0));
+        } else if (actions.a || actions.start) {
+          if (detailIdx === 0) {
+            handleTryLaunchGame(detailGame);
+          } else if (detailIdx === 1) {
+            setOptionsMenuGame(detailGame);
+          }
+        } else if (actions.x || actions.y) {
+          setOptionsMenuGame(detailGame);
+        }
+        return true;
+      }
+
       if (currentGames.length > 0) {
         if (focusArea === "carousel") {
           if (actions.left) {
@@ -1303,7 +1382,14 @@ function App() {
             setFocusArea("header");
             setHeaderSelectedIndex(0);
           } else if (actions.a || actions.start) {
-            if (currentGames[currentIndex]) handleTryLaunchGame(currentGames[currentIndex]);
+            if (currentGames[currentIndex]) {
+              if (theme === "atlas") {
+                setActiveDetailGame(currentGames[currentIndex]);
+                setDetailSelectedIndex(0);
+              } else {
+                handleTryLaunchGame(currentGames[currentIndex]);
+              }
+            }
           } else if (actions.select) {
             setSettingsOpen(true);
           } else if (actions.y) {
@@ -1312,6 +1398,7 @@ function App() {
             setAddGameModalOpen(true);
           }
         } else if (focusArea === "header") {
+
           if (actions.left) {
             setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 2));
           } else if (actions.right) {
@@ -1567,7 +1654,113 @@ function App() {
 
         {/* Main Content Area */}
         <main className="console-content">
-          {games.length === 0 && !loading ? (
+          {currentTheme === "atlas" && activeDetailGame ? (
+            <div className="atlas-game-detail-view">
+              <div className="atlas-detail-topbar">
+                <button
+                  className={`atlas-detail-back-btn ${detailSelectedIndex === 2 ? "focused" : ""}`}
+                  onClick={() => setActiveDetailGame(null)}
+                  onMouseEnter={() => setDetailSelectedIndex(2)}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <line x1="19" y1="12" x2="5" y2="12"></line>
+                    <polyline points="12 19 5 12 12 5"></polyline>
+                  </svg>
+                  <span>Voltar para a Biblioteca</span>
+                  <span className="key-hint-badge">ESC</span>
+                </button>
+              </div>
+
+              <div className="atlas-detail-hero">
+                <div className="atlas-detail-left-col">
+                  <div className="atlas-detail-cover-wrapper">
+                    {imageErrors[activeDetailGame.appid] || !activeDetailGame.image_url ? (
+                      <div className="atlas-detail-cover-placeholder" style={{ background: getGradientBg(activeDetailGame.name) }}>
+                        <div className="placeholder-tag">{activeDetailGame.isCustom ? "Custom" : "Steam"}</div>
+                        <div className="placeholder-text">{activeDetailGame.name}</div>
+                      </div>
+                    ) : (
+                      <img
+                        src={getGameImageUrl(activeDetailGame)}
+                        alt={activeDetailGame.name}
+                        className="atlas-detail-cover-img"
+                        onError={() => handleImageError(activeDetailGame.appid)}
+                      />
+                    )}
+                    <div className="atlas-detail-cover-glow"></div>
+                  </div>
+                </div>
+
+                <div className="atlas-detail-right-col">
+                  <div className="atlas-detail-header-info">
+                    <div className="atlas-detail-platform-badge">
+                      <span className="badge-icon">🎮</span>
+                      <span>{activeDetailGame.isCustom ? "Jogo Personalizado (PC)" : "Steam Library"}</span>
+                    </div>
+                    <h1 className="atlas-detail-title">{activeDetailGame.name}</h1>
+                    <p className="atlas-detail-path-info">
+                      {activeDetailGame.isCustom
+                        ? `Executável: ${activeDetailGame.exe_path || "Não especificado"}`
+                        : `Steam App ID: ${activeDetailGame.appid}`}
+                    </p>
+                  </div>
+
+                  <div className="atlas-detail-stats-grid">
+                    <div className="atlas-stat-card">
+                      <div className="stat-icon">⏱️</div>
+                      <div className="stat-content">
+                        <span className="stat-label">Tempo Jogado</span>
+                        <span className="stat-value">{playtimes[activeDetailGame.appid]?.formatted || "< 1m"}</span>
+                      </div>
+                    </div>
+
+                    <div className="atlas-stat-card">
+                      <div className="stat-icon">📅</div>
+                      <div className="stat-content">
+                        <span className="stat-label">Último Acesso</span>
+                        <span className="stat-value">
+                          {activeDetailGame.last_played ? new Date(activeDetailGame.last_played).toLocaleDateString() : "Nunca"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="atlas-stat-card">
+                      <div className="stat-icon">⚡</div>
+                      <div className="stat-content">
+                        <span className="stat-label">Status</span>
+                        <span className="stat-value status-ready">Pronto para Jogar</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="atlas-detail-actions-row">
+                    <button
+                      className={`atlas-detail-play-btn ${detailSelectedIndex === 0 ? "focused" : ""}`}
+                      onClick={() => handleTryLaunchGame(activeDetailGame)}
+                      onMouseEnter={() => setDetailSelectedIndex(0)}
+                    >
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                      <span>Jogar</span>
+                    </button>
+
+                    <button
+                      className={`atlas-detail-options-btn ${detailSelectedIndex === 1 ? "focused" : ""}`}
+                      onClick={() => setOptionsMenuGame(activeDetailGame)}
+                      onMouseEnter={() => setDetailSelectedIndex(1)}
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                      </svg>
+                      <span>Opções</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : games.length === 0 && !loading ? (
             <div className="empty-library-container">
               <div className="empty-library-content">
                 <div className="empty-library-icon">
@@ -1663,14 +1856,20 @@ function App() {
                           key={game.appid}
                           className={`game-card ${isFocused ? "focused" : ""}`}
                           onClick={() => {
-                            if (isFocused) {
-                              handleTryLaunchGame(game);
+                            setSelectedGameIndex(index);
+                            if (currentTheme === "atlas") {
+                              setActiveDetailGame(game);
+                              setDetailSelectedIndex(0);
                             } else {
-                              setSelectedGameIndex(index);
-                              setFocusArea("carousel");
+                              if (isFocused) {
+                                handleTryLaunchGame(game);
+                              } else {
+                                setFocusArea("carousel");
+                              }
                             }
                           }}
                         >
+
                           {isErr ? (
                             <div className="game-card-placeholder" style={{ background: getGradientBg(game.name) }}>
                               <div className="placeholder-tag">{game.isCustom ? "Jogo Custom" : "Jogo Steam"}</div>
