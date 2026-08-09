@@ -762,9 +762,18 @@ function App() {
         backgroundUrl: editBg || null,
       });
       const updated = gameDtoToSteamGame(dto);
-      setCustomGames((prev) =>
-        prev.map((g) => (g.appid === editingGame.appid ? updated : g))
-      );
+      if (editingGame.isCustom) {
+        setCustomGames((prev) =>
+          prev.map((g) => (g.appid === editingGame.appid ? updated : g))
+        );
+      } else {
+        setSteamGames((prev) =>
+          prev.map((g) => (g.appid === editingGame.appid ? updated : g))
+        );
+      }
+      if (activeDetailGame && activeDetailGame.appid === editingGame.appid) {
+        setActiveDetailGame(updated);
+      }
     } catch (err) {
       console.error("Failed to update game:", err);
       alert(`Erro ao atualizar o jogo: ${err}`);
@@ -1325,6 +1334,9 @@ function App() {
           } else {
             setSteamGames((prev) => prev.map((g) => (g.appid === appid ? updated : g)));
           }
+          if (activeDetailGame && activeDetailGame.appid === appid) {
+            setActiveDetailGame(updated);
+          }
         } catch {
           if (game.isCustom) {
             setCustomGames((prev) =>
@@ -1334,6 +1346,9 @@ function App() {
             setSteamGames((prev) =>
               prev.map((g) => (g.appid === appid ? { ...g, image_url: newUrl } : g))
             );
+          }
+          if (activeDetailGame && activeDetailGame.appid === appid) {
+            setActiveDetailGame((prev) => (prev ? { ...prev, image_url: newUrl } : prev));
           }
         }
       })
