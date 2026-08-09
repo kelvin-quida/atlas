@@ -4,7 +4,7 @@ import { SteamGame, GameDto, PlaytimeStats } from "../types/game";
 // Map a DB GameDto to the legacy SteamGame shape used throughout the UI
 export function gameDtoToSteamGame(dto: GameDto): SteamGame {
   return {
-    appid: dto.id,
+    appid: dto.steam_app_id || dto.id,
     name: dto.name,
     installdir: dto.install_dir ?? "",
     library_path: "",

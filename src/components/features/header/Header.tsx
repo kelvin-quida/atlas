@@ -31,9 +31,8 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
         <div className="ps5-header-right">
           <button
-            className={`ps5-icon-btn ${
-              focusArea === "header" && headerSelectedIndex === 0 ? "focused" : ""
-            }`}
+            className={`ps5-icon-btn ${focusArea === "header" && headerSelectedIndex === 0 ? "focused" : ""
+              }`}
             onClick={onOpenYouTube}
             title="YouTube"
           >
@@ -42,9 +41,8 @@ export const Header: React.FC<HeaderProps> = ({
             </svg>
           </button>
           <button
-            className={`ps5-icon-btn twitch-btn ${
-              focusArea === "header" && headerSelectedIndex === 1 ? "focused" : ""
-            }`}
+            className={`ps5-icon-btn twitch-btn ${focusArea === "header" && headerSelectedIndex === 1 ? "focused" : ""
+              }`}
             onClick={onOpenTwitch}
             title="Twitch"
           >
@@ -53,9 +51,8 @@ export const Header: React.FC<HeaderProps> = ({
             </svg>
           </button>
           <button
-            className={`ps5-icon-btn backloggd-btn ${
-              focusArea === "header" && headerSelectedIndex === 2 ? "focused" : ""
-            }`}
+            className={`ps5-icon-btn backloggd-btn ${focusArea === "header" && headerSelectedIndex === 2 ? "focused" : ""
+              }`}
             onClick={onOpenBackloggd}
             title="Backloggd"
           >
@@ -64,9 +61,8 @@ export const Header: React.FC<HeaderProps> = ({
             </svg>
           </button>
           <button
-            className={`ps5-icon-btn ${
-              focusArea === "header" && headerSelectedIndex === 3 ? "focused" : ""
-            }`}
+            className={`ps5-icon-btn ${focusArea === "header" && headerSelectedIndex === 3 ? "focused" : ""
+              }`}
             onClick={onOpenSettings}
             title="Configurações"
           >
@@ -97,14 +93,12 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="console-header">
       <div className="logo-container">
         <span className="logo-text">ATLAS</span>
-        <span className="logo-tag">LAUNCHER</span>
       </div>
 
       <div className="system-status">
         <button
-          className={`header-icon-btn ${
-            focusArea === "header" && headerSelectedIndex === 0 ? "focused" : ""
-          }`}
+          className={`header-icon-btn ${focusArea === "header" && headerSelectedIndex === 0 ? "focused" : ""
+            }`}
           onClick={onOpenYouTube}
           title="YouTube"
           style={{
@@ -124,9 +118,8 @@ export const Header: React.FC<HeaderProps> = ({
           </svg>
         </button>
         <button
-          className={`header-icon-btn twitch-btn ${
-            focusArea === "header" && headerSelectedIndex === 1 ? "focused" : ""
-          }`}
+          className={`header-icon-btn twitch-btn ${focusArea === "header" && headerSelectedIndex === 1 ? "focused" : ""
+            }`}
           onClick={onOpenTwitch}
           title="Twitch"
           style={{
@@ -146,9 +139,8 @@ export const Header: React.FC<HeaderProps> = ({
           </svg>
         </button>
         <button
-          className={`header-icon-btn backloggd-btn ${
-            focusArea === "header" && headerSelectedIndex === 2 ? "focused" : ""
-          }`}
+          className={`header-icon-btn backloggd-btn ${focusArea === "header" && headerSelectedIndex === 2 ? "focused" : ""
+            }`}
           onClick={onOpenBackloggd}
           title="Backloggd"
           style={{
@@ -168,9 +160,8 @@ export const Header: React.FC<HeaderProps> = ({
           </svg>
         </button>
         <button
-          className={`header-icon-btn ${
-            focusArea === "header" && headerSelectedIndex === 3 ? "focused" : ""
-          }`}
+          className={`header-icon-btn ${focusArea === "header" && headerSelectedIndex === 3 ? "focused" : ""
+            }`}
           onClick={onOpenSettings}
           title="Configurações"
           style={{

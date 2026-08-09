@@ -1577,6 +1577,11 @@ pub fn run() {
             close_backloggd_webview,
             backloggd_gamepad_action,
             toggle_fullscreen,
+            // ── Steam Account / Library ───────────────────────────────
+            commands::steam_commands::steam_login,
+            commands::steam_commands::steam_logout,
+            commands::steam_commands::steam_get_user,
+            commands::steam_commands::steam_import_library,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

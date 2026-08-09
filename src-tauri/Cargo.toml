@@ -53,6 +53,12 @@ chrono = { version = "0.4", features = ["serde"] }
 # Async trait support (for MetadataProvider)
 async-trait = "0.1"
 
+# Steam OpenID login — lightweight local HTTP server for OAuth callback
+tiny_http = "0.12"
+
+# URL / query-string parsing
+url = "2"
+
 
 
 

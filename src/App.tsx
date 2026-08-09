@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import { useGamepad } from "./providers/GamepadContext";
 import { GamepadActionState } from "./core/focus/gamepadInput";
 import "./App.css";
@@ -13,6 +14,9 @@ import {
   SettingsTab,
   EditTab,
   FocusArea,
+  SteamUserInfo,
+  SteamImportResult,
+  SteamImportProgress,
 } from "./types/game";
 
 // Utils
@@ -97,6 +101,13 @@ function App() {
   const [fileExplorerFilter, setFileExplorerFilter] = useState<string[]>([]);
   const [fileExplorerOnSelect, setFileExplorerOnSelect] = useState<((path: string) => void) | null>(null);
   const [availableDrives, setAvailableDrives] = useState<string[]>([]);
+
+  // Steam Account States
+  const [steamUser, setSteamUser] = useState<SteamUserInfo | null>(null);
+  const [steamImporting, setSteamImporting] = useState(false);
+  const [steamImportResult, setSteamImportResult] = useState<SteamImportResult | null>(null);
+  const [steamImportProgress, setSteamImportProgress] = useState<SteamImportProgress | null>(null);
+  const [steamLoggingIn, setSteamLoggingIn] = useState(false);
 
   const carouselRef = useRef<HTMLDivElement | null>(null);
   const igdbAttemptsRef = useRef<Record<string, boolean>>({});
@@ -385,6 +396,71 @@ function App() {
     }
   }, [selectedGameIndex, games]);
 
+  // ── Steam Account Handlers ──────────────────────────────────────────────────
+  const loadSteamUser = async () => {
+    try {
+      const user = await invoke<SteamUserInfo | null>("steam_get_user");
+      setSteamUser(user);
+    } catch (err) {
+      console.warn("[Atlas] Failed to load Steam user:", err);
+    }
+  };
+
+  const handleSteamLogin = async () => {
+    setSteamLoggingIn(true);
+    setSteamImportResult(null);
+    try {
+      const user = await invoke<SteamUserInfo>("steam_login");
+      setSteamUser(user);
+    } catch (err) {
+      console.error("[Atlas] Steam login failed:", err);
+      alert(`Falha ao conectar com Steam: ${err}`);
+    } finally {
+      setSteamLoggingIn(false);
+    }
+  };
+
+  const handleSteamLogout = async () => {
+    try {
+      await invoke("steam_logout");
+      setSteamUser(null);
+      setSteamImportResult(null);
+    } catch (err) {
+      console.error("[Atlas] Steam logout failed:", err);
+    }
+  };
+
+  // Listen for Steam import progress events
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen<SteamImportProgress>("steam-import-progress", (event) => {
+      setSteamImportProgress(event.payload);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  const handleSteamImport = async () => {
+    setSteamImporting(true);
+    setSteamImportResult(null);
+    setSteamImportProgress(null);
+    try {
+      const result = await invoke<SteamImportResult>("steam_import_library");
+      setSteamImportResult(result);
+      // Reload the game library to show imported games
+      await loadGames();
+    } catch (err) {
+      console.error("[Atlas] Steam import failed:", err);
+      alert(`Falha ao importar biblioteca Steam: ${err}`);
+    } finally {
+      setSteamImporting(false);
+      setSteamImportProgress(null);
+    }
+  };
+
   // Listen to window focus/blur to end play sessions
   useEffect(() => {
     const handleFocus = async () => {
@@ -477,10 +553,10 @@ function App() {
         activeGame.bg_url.startsWith("data:")
           ? activeGame.bg_url
           : convertFileSrc(activeGame.bg_url);
+    } else if (!activeGame.isCustom && activeGame.appid) {
+      bgUrl = `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${activeGame.appid}/library_hero.jpg`;
     } else if (activeGame.image_url) {
-      if (!activeGame.isCustom) {
-        bgUrl = `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${activeGame.appid}/header.jpg`;
-      } else if (activeGame.image_url.includes("images.igdb.com")) {
+      if (activeGame.image_url.includes("images.igdb.com")) {
         bgUrl = activeGame.image_url.replace("t_720p", "t_cover_big");
       } else {
         bgUrl = getGameImageUrl(activeGame);
@@ -492,10 +568,31 @@ function App() {
       return;
     }
 
+    let isMounted = true;
     const img = new Image();
     img.src = bgUrl;
     img.onload = () => {
-      setAmbientBgUrl(bgUrl);
+      if (isMounted) setAmbientBgUrl(bgUrl);
+    };
+    img.onerror = () => {
+      // Fallback for Steam games: try header.jpg if library_hero.jpg failed
+      if (!activeGame.isCustom && activeGame.appid && bgUrl.includes("library_hero")) {
+        const fallbackUrl = `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${activeGame.appid}/header.jpg`;
+        const fallbackImg = new Image();
+        fallbackImg.src = fallbackUrl;
+        fallbackImg.onload = () => {
+          if (isMounted) setAmbientBgUrl(fallbackUrl);
+        };
+        fallbackImg.onerror = () => {
+          if (isMounted) setAmbientBgUrl("");
+        };
+      } else {
+        if (isMounted) setAmbientBgUrl("");
+      }
+    };
+
+    return () => {
+      isMounted = false;
     };
   }, [selectedGameIndex, games, loading]);
 
@@ -928,6 +1025,7 @@ function App() {
   useEffect(() => {
     loadGames();
     checkShellStatus();
+    loadSteamUser();
   }, []);
 
   // Keyboard navigation for carousel and header buttons
@@ -1532,6 +1630,14 @@ function App() {
             onTabChange={setSettingsTab}
             onToggleShell={handleToggleShell}
             onReloadLibrary={loadGames}
+            steamUser={steamUser}
+            steamLoggingIn={steamLoggingIn}
+            steamImporting={steamImporting}
+            steamImportResult={steamImportResult}
+            steamImportProgress={steamImportProgress}
+            onSteamLogin={handleSteamLogin}
+            onSteamLogout={handleSteamLogout}
+            onSteamImport={handleSteamImport}
             onOpenAddGameModal={openAddGameModal}
             onDeleteCustomGame={handleDeleteCustomGame}
             onSelectTheme={setCurrentTheme}
