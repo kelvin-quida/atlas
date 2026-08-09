@@ -59,6 +59,7 @@ function App() {
   const { gamepadConnected, registerLayerHandler } = useGamepad();
   const [youtubeActive, setYoutubeActive] = useState(false);
   const [twitchActive, setTwitchActive] = useState(false);
+  const [backloggdActive, setBackloggdActive] = useState(false);
   const [activeDetailGame, setActiveDetailGame] = useState<SteamGame | null>(null);
   const [detailSelectedIndex, setDetailSelectedIndex] = useState<number>(0);
 
@@ -196,6 +197,7 @@ function App() {
     loading,
     youtubeActive,
     twitchActive,
+    backloggdActive,
     optionsMenuGame,
     optionsMenuSelectedIndex,
     editingGame,
@@ -221,6 +223,7 @@ function App() {
       loading,
       youtubeActive,
       twitchActive,
+      backloggdActive,
       optionsMenuGame,
       optionsMenuSelectedIndex,
       editingGame,
@@ -243,6 +246,7 @@ function App() {
     loading,
     youtubeActive,
     twitchActive,
+    backloggdActive,
     optionsMenuGame,
     optionsMenuSelectedIndex,
     editingGame,
@@ -287,6 +291,27 @@ function App() {
       console.error(err);
       alert(`Falha ao abrir Twitch: ${err}`);
       setTwitchActive(false);
+    }
+  };
+
+  const handleOpenBackloggd = async () => {
+    try {
+      setBackloggdActive(true);
+      await invoke("open_backloggd_webview");
+    } catch (err) {
+      console.error(err);
+      alert(`Falha ao abrir Backloggd: ${err}`);
+      setBackloggdActive(false);
+    }
+  };
+
+  const handleCloseBackloggd = async () => {
+    try {
+      await invoke("close_backloggd_webview");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setBackloggdActive(false);
     }
   };
 
@@ -507,6 +532,9 @@ function App() {
     }
     if (twitchActive) {
       await handleCloseTwitch();
+    }
+    if (backloggdActive) {
+      await handleCloseBackloggd();
     }
 
     setLaunchingGame(game);
@@ -929,6 +957,14 @@ function App() {
         return;
       }
 
+      if (backloggdActive) {
+        if (e.key === "Escape" || e.key === "Backspace") {
+          e.preventDefault();
+          handleCloseBackloggd();
+        }
+        return;
+      }
+
       if (games.length === 0) {
         if (e.key === "s" || e.key === "S") {
           e.preventDefault();
@@ -955,16 +991,18 @@ function App() {
         if (focusArea === "header") {
           if (e.key === "ArrowLeft") {
             e.preventDefault();
-            setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 2));
+            setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 3));
           } else if (e.key === "ArrowRight") {
             e.preventDefault();
-            setHeaderSelectedIndex((prev) => (prev < 2 ? prev + 1 : 0));
+            setHeaderSelectedIndex((prev) => (prev < 3 ? prev + 1 : 0));
           } else if (e.key === "Enter") {
             e.preventDefault();
             if (headerSelectedIndex === 0) {
               handleOpenYouTube();
             } else if (headerSelectedIndex === 1) {
               handleOpenTwitch();
+            } else if (headerSelectedIndex === 2) {
+              handleOpenBackloggd();
             } else {
               setSettingsOpen(true);
             }
@@ -978,7 +1016,7 @@ function App() {
           e.preventDefault();
           setSelectedGameIndex((prev) => (prev > 0 ? prev - 1 : games.length - 1));
         } else if (e.key === "ArrowRight") {
-          e.preventDefault();
+          e.preventDefault();
           setSelectedGameIndex((prev) => (prev < games.length - 1 ? prev + 1 : 0));
         } else if (e.key === "ArrowUp") {
           e.preventDefault();
@@ -1000,10 +1038,10 @@ function App() {
       } else if (focusArea === "header") {
         if (e.key === "ArrowLeft") {
           e.preventDefault();
-          setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 2));
+          setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 3));
         } else if (e.key === "ArrowRight") {
           e.preventDefault();
-          setHeaderSelectedIndex((prev) => (prev < 2 ? prev + 1 : 0));
+          setHeaderSelectedIndex((prev) => (prev < 3 ? prev + 1 : 0));
         } else if (e.key === "ArrowDown") {
           e.preventDefault();
           setFocusArea("carousel");
@@ -1013,6 +1051,8 @@ function App() {
             handleOpenYouTube();
           } else if (headerSelectedIndex === 1) {
             handleOpenTwitch();
+          } else if (headerSelectedIndex === 2) {
+            handleOpenBackloggd();
           } else {
             setSettingsOpen(true);
           }
@@ -1034,6 +1074,7 @@ function App() {
     isSimulated,
     youtubeActive,
     twitchActive,
+    backloggdActive,
     optionsMenuGame,
     editingGame,
     focusArea,
@@ -1115,6 +1156,7 @@ function App() {
         loading: isLoading,
         youtubeActive: isYoutubeActive,
         twitchActive: isTwitchActive,
+        backloggdActive: isBackloggdActive,
         optionsMenuGame: isOptionsMenuOpen,
         optionsMenuSelectedIndex: selectedOptionIdx,
         editingGame: isEditing,
@@ -1172,6 +1214,23 @@ function App() {
         else if (actions.rb) sendAction("seek_forward");
         else if (actions.lt) sendAction("volume_down");
         else if (actions.rt) sendAction("volume_up");
+        else if (actions.rawAxes.y < -0.6) sendAction("scroll_up");
+        else if (actions.rawAxes.y > 0.6) sendAction("scroll_down");
+        return true;
+      }
+
+      if (isBackloggdActive) {
+        const sendAction = (action: string) => {
+          invoke("backloggd_gamepad_action", { action }).catch(console.error);
+        };
+
+        if (actions.start) handleCloseBackloggd();
+        else if (actions.up) sendAction("navigate_up");
+        else if (actions.down) sendAction("navigate_down");
+        else if (actions.left) sendAction("navigate_left");
+        else if (actions.right) sendAction("navigate_right");
+        else if (actions.a) sendAction("click");
+        else if (actions.b) sendAction("back");
         else if (actions.rawAxes.y < -0.6) sendAction("scroll_up");
         else if (actions.rawAxes.y > 0.6) sendAction("scroll_down");
         return true;
@@ -1282,14 +1341,15 @@ function App() {
           }
         } else if (focusArea === "header") {
           if (actions.left) {
-            setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 2));
+            setHeaderSelectedIndex((prev) => (prev > 0 ? prev - 1 : 3));
           } else if (actions.right) {
-            setHeaderSelectedIndex((prev) => (prev < 2 ? prev + 1 : 0));
+            setHeaderSelectedIndex((prev) => (prev < 3 ? prev + 1 : 0));
           } else if (actions.down) {
             setFocusArea("carousel");
           } else if (actions.a) {
             if (headerSelectedIndex === 0) handleOpenYouTube();
             else if (headerSelectedIndex === 1) handleOpenTwitch();
+            else if (headerSelectedIndex === 2) handleOpenBackloggd();
             else setSettingsOpen(true);
           } else if (actions.b) {
             setFocusArea("carousel");
@@ -1389,6 +1449,7 @@ function App() {
           systemTime={systemTime}
           onOpenYouTube={handleOpenYouTube}
           onOpenTwitch={handleOpenTwitch}
+          onOpenBackloggd={handleOpenBackloggd}
           onOpenSettings={() => setSettingsOpen(true)}
         />
       }

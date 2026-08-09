@@ -1,4 +1,4 @@
-﻿use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::time::{Instant, Duration};
 use tauri::Manager;
 use tokio::sync::Mutex;
@@ -1218,6 +1218,256 @@ async fn close_youtube_webview(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Backloggd webview
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BACKLOGGD_INIT_SCRIPT: &str = r#"
+(function() {
+    if (window.__ATLAS_BACKLOGGD_INJECTED) return;
+    window.__ATLAS_BACKLOGGD_INJECTED = true;
+
+    // 1. Inject TV-friendly CSS & Focus Highlight
+    const injectStyles = () => {
+        const style = document.createElement('style');
+        style.id = 'atlas-backloggd-tv-engine';
+        style.textContent = `
+            html {
+                font-size: 100% !important;
+                -webkit-font-smoothing: antialiased !important;
+                -moz-osx-font-smoothing: grayscale !important;
+                text-rendering: optimizeLegibility !important;
+                overflow-x: hidden !important;
+            }
+
+            /* Hide cookie/consent banners */
+            .consent-banner,
+            .cookie-banner,
+            div[aria-label="Cookie Banner"],
+            #cookie-banner {
+                display: none !important;
+            }
+
+            /* Active Focus Highlight */
+            .atlas-spatial-focused,
+            a:focus-visible,
+            button:focus-visible,
+            input:focus-visible {
+                outline: 3px solid #5C7CFA !important;
+                outline-offset: 2px !important;
+                box-shadow: 0 0 18px rgba(92, 124, 250, 0.85) !important;
+                border-radius: 6px !important;
+                z-index: 9999 !important;
+                transition: outline 0.1s ease, box-shadow 0.1s ease !important;
+            }
+        `;
+        if (document.head) document.head.appendChild(style);
+        else document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));
+    };
+    injectStyles();
+
+    function clearSpatialFocus() {
+        document.querySelectorAll('.atlas-spatial-focused').forEach(el => {
+            el.classList.remove('atlas-spatial-focused');
+        });
+    }
+
+    function getFocusableElements() {
+        const selector = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]';
+        const elements = Array.from(document.querySelectorAll(selector));
+
+        return elements.filter(el => {
+            const rect = el.getBoundingClientRect();
+            if (rect.width < 12 || rect.height < 12) return false;
+
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+
+            let p = el.parentElement;
+            while (p && p !== document.body) {
+                if (p.tagName === 'A' && p !== el) return false;
+                p = p.parentElement;
+            }
+
+            return rect.bottom >= -50 && rect.top <= (window.innerHeight || document.documentElement.clientHeight) + 200;
+        });
+    }
+
+    function moveSpatialFocus(direction) {
+        const focusables = getFocusableElements();
+        if (focusables.length === 0) return;
+
+        let current = document.activeElement;
+        if (!current || current === document.body || !document.body.contains(current) || !current.getBoundingClientRect) {
+            current = focusables[0];
+            if (current) {
+                clearSpatialFocus();
+                current.focus();
+                current.classList.add('atlas-spatial-focused');
+                current.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+            }
+            return;
+        }
+
+        const currentRect = current.getBoundingClientRect();
+        const currentCenter = {
+            x: currentRect.left + currentRect.width / 2,
+            y: currentRect.top + currentRect.height / 2
+        };
+
+        let bestCandidate = null;
+        let minDistance = Infinity;
+
+        focusables.forEach(el => {
+            if (el === current || el.contains(current) || current.contains(el)) return;
+            const rect = el.getBoundingClientRect();
+            const center = {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2
+            };
+
+            const dx = center.x - currentCenter.x;
+            const dy = center.y - currentCenter.y;
+
+            let isValidDirection = false;
+            let weight = 1.0;
+
+            switch (direction) {
+                case 'navigate_up':
+                    isValidDirection = dy < -8;
+                    weight = Math.abs(dx) * 2.2 + Math.abs(dy);
+                    break;
+                case 'navigate_down':
+                    isValidDirection = dy > 8;
+                    weight = Math.abs(dx) * 2.2 + Math.abs(dy);
+                    break;
+                case 'navigate_left':
+                    isValidDirection = dx < -8;
+                    weight = Math.abs(dx) + Math.abs(dy) * 2.2;
+                    break;
+                case 'navigate_right':
+                    isValidDirection = dx > 8;
+                    weight = Math.abs(dx) + Math.abs(dy) * 2.2;
+                    break;
+            }
+
+            if (isValidDirection && weight < minDistance) {
+                minDistance = weight;
+                bestCandidate = el;
+            }
+        });
+
+        clearSpatialFocus();
+
+        if (bestCandidate) {
+            bestCandidate.focus();
+            bestCandidate.classList.add('atlas-spatial-focused');
+            bestCandidate.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+        } else {
+            if (direction === 'navigate_up') window.scrollBy({ top: -250, behavior: 'smooth' });
+            if (direction === 'navigate_down') window.scrollBy({ top: 250, behavior: 'smooth' });
+            if (direction === 'navigate_left') window.scrollBy({ left: -250, behavior: 'smooth' });
+            if (direction === 'navigate_right') window.scrollBy({ left: 250, behavior: 'smooth' });
+        }
+    }
+
+    function simulateKey(key, code, keyCode) {
+        const target = document.activeElement || document.body;
+        const opts = {
+            key: key, code: code, keyCode: keyCode, which: keyCode,
+            bubbles: true, cancelable: true
+        };
+        target.dispatchEvent(new KeyboardEvent('keydown', opts));
+        target.dispatchEvent(new KeyboardEvent('keyup', opts));
+    }
+
+    window.__ATLAS_BACKLOGGD = function(action) {
+        switch(action) {
+            case 'navigate_up':
+            case 'navigate_down':
+            case 'navigate_left':
+            case 'navigate_right':
+                moveSpatialFocus(action);
+                break;
+
+            case 'click':
+                if (document.activeElement && document.activeElement !== document.body) {
+                    document.activeElement.click();
+                } else {
+                    simulateKey('Enter', 'Enter', 13);
+                }
+                break;
+
+            case 'back':
+                clearSpatialFocus();
+                simulateKey('Escape', 'Escape', 27);
+                history.back();
+                break;
+
+            case 'scroll_up':
+                window.scrollBy({ top: -350, behavior: 'smooth' });
+                break;
+
+            case 'scroll_down':
+                window.scrollBy({ top: 350, behavior: 'smooth' });
+                break;
+        }
+    };
+
+    console.log('[Atlas] Backloggd Spatial Navigation injected.');
+})();
+"#;
+
+#[tauri::command]
+async fn open_backloggd_webview(app: tauri::AppHandle) -> Result<(), String> {
+    let main_window = app
+        .get_window("main")
+        .ok_or_else(|| "Janela principal não encontrada".to_string())?;
+
+    if app.get_webview("backloggd").is_some() {
+        return Ok(());
+    }
+
+    let size = main_window.inner_size().map_err(|e| e.to_string())?;
+
+    let webview_builder = tauri::WebviewBuilder::new(
+        "backloggd",
+        tauri::WebviewUrl::External(tauri::Url::parse("https://www.backloggd.com").unwrap()),
+    )
+    .initialization_script(BACKLOGGD_INIT_SCRIPT)
+    .auto_resize();
+
+    main_window
+        .add_child(
+            webview_builder,
+            tauri::PhysicalPosition::new(0, 0),
+            tauri::PhysicalSize::new(size.width, size.height),
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn backloggd_gamepad_action(app: tauri::AppHandle, action: String) -> Result<(), String> {
+    if let Some(webview) = app.get_webview("backloggd") {
+        let js = format!(
+            "if (window.__ATLAS_BACKLOGGD) {{ window.__ATLAS_BACKLOGGD('{}'); }}",
+            action.replace('\\', "\\\\").replace('\'', "\\'")
+        );
+        webview.eval(&js).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn close_backloggd_webview(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(webview) = app.get_webview("backloggd") {
+        webview.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn toggle_fullscreen(window: tauri::Window) -> Result<bool, String> {
     let is_fullscreen = window.is_fullscreen().map_err(|e| e.to_string())?;
@@ -1281,6 +1531,10 @@ pub fn run() {
                         let _ = twitch.set_position(tauri::PhysicalPosition::new(0, 0));
                         let _ = twitch.set_size(tauri::PhysicalSize::new(size.width, size.height));
                     }
+                    if let Some(backloggd) = window.get_webview("backloggd") {
+                        let _ = backloggd.set_position(tauri::PhysicalPosition::new(0, 0));
+                        let _ = backloggd.set_size(tauri::PhysicalSize::new(size.width, size.height));
+                    }
                 }
             }
         })
@@ -1318,6 +1572,10 @@ pub fn run() {
             open_twitch_webview,
             close_twitch_webview,
             twitch_gamepad_action,
+            // ── Backloggd ─────────────────────────────────────────────
+            open_backloggd_webview,
+            close_backloggd_webview,
+            backloggd_gamepad_action,
             toggle_fullscreen,
         ])
         .run(tauri::generate_context!())

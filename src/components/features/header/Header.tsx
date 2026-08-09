@@ -8,6 +8,7 @@ interface HeaderProps {
   systemTime: string;
   onOpenYouTube: () => void;
   onOpenTwitch: () => void;
+  onOpenBackloggd: () => void;
   onOpenSettings: () => void;
 }
 
@@ -18,6 +19,7 @@ export const Header: React.FC<HeaderProps> = ({
   systemTime,
   onOpenYouTube,
   onOpenTwitch,
+  onOpenBackloggd,
   onOpenSettings,
 }) => {
   if (currentTheme === "ps5") {
@@ -51,8 +53,19 @@ export const Header: React.FC<HeaderProps> = ({
             </svg>
           </button>
           <button
-            className={`ps5-icon-btn ${
+            className={`ps5-icon-btn backloggd-btn ${
               focusArea === "header" && headerSelectedIndex === 2 ? "focused" : ""
+            }`}
+            onClick={onOpenBackloggd}
+            title="Backloggd"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M21 4H3a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1zM5.5 7h3a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-4a.5.5 0 0 1 .5-.5zm-1 7.5a.5.5 0 0 1 .5-.5h14a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zm15 2.5H4.5v-1h15v1zm0-4h-8a.5.5 0 0 1 0-1h8a.5.5 0 0 1 0 1zm0-2h-8a.5.5 0 0 1 0-1h8a.5.5 0 0 1 0 1zm0-2h-8a.5.5 0 0 1 0-1h8a.5.5 0 0 1 0 1z" />
+            </svg>
+          </button>
+          <button
+            className={`ps5-icon-btn ${
+              focusArea === "header" && headerSelectedIndex === 3 ? "focused" : ""
             }`}
             onClick={onOpenSettings}
             title="Configurações"
@@ -133,8 +146,30 @@ export const Header: React.FC<HeaderProps> = ({
           </svg>
         </button>
         <button
-          className={`header-icon-btn ${
+          className={`header-icon-btn backloggd-btn ${
             focusArea === "header" && headerSelectedIndex === 2 ? "focused" : ""
+          }`}
+          onClick={onOpenBackloggd}
+          title="Backloggd"
+          style={{
+            background: "none",
+            border: "none",
+            color: "var(--text-secondary)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "0.25rem",
+            transition: "all 0.2s ease",
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M21 4H3a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1zM5.5 7h3a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-4a.5.5 0 0 1 .5-.5zm-1 7.5a.5.5 0 0 1 .5-.5h14a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zm15 2.5H4.5v-1h15v1zm0-4h-8a.5.5 0 0 1 0-1h8a.5.5 0 0 1 0 1zm0-2h-8a.5.5 0 0 1 0-1h8a.5.5 0 0 1 0 1zm0-2h-8a.5.5 0 0 1 0-1h8a.5.5 0 0 1 0 1z" />
+          </svg>
+        </button>
+        <button
+          className={`header-icon-btn ${
+            focusArea === "header" && headerSelectedIndex === 3 ? "focused" : ""
           }`}
           onClick={onOpenSettings}
           title="Configurações"
