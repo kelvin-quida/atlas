@@ -169,40 +169,45 @@ pub async fn list_games(
 
     let installed_appids = crate::get_installed_steam_appids();
 
-    let dtos = games
-        .into_iter()
-        .map(|(g, assets)| {
-            let cover = assets
-                .iter()
-                .find(|a| a.asset_type == "cover")
-                .map(|a| a.file_path.clone());
-            let background = assets
-                .iter()
-                .find(|a| a.asset_type == "background")
-                .map(|a| a.file_path.clone());
-            let is_installed = is_game_installed(
-                &g.platform,
-                &g.exe_path,
-                &g.install_dir,
-                &g.steam_app_id,
-                &installed_appids,
-            );
-            GameDto {
-                id: g.id,
-                name: g.name,
-                platform: g.platform,
-                exe_path: g.exe_path,
-                install_dir: g.install_dir,
-                steam_app_id: g.steam_app_id,
-                igdb_id: g.igdb_id,
-                cover_url: resolve_cover_url(cover, app_data_dir),
-                background_url: resolve_cover_url(background, app_data_dir),
-                last_played: g.last_played,
-                added_at: g.added_at,
-                is_installed,
-            }
-        })
-        .collect();
+    let mut dtos = Vec::new();
+
+    for (g, assets) in games {
+        // Automatically purge Proton / Steam system tools from database if found
+        if crate::services::steam_service::is_steam_tool_or_proton(&g.name, g.steam_app_id.as_deref()) {
+            let _ = delete_game(db, &g.id).await;
+            continue;
+        }
+
+        let cover = assets
+            .iter()
+            .find(|a| a.asset_type == "cover")
+            .map(|a| a.file_path.clone());
+        let background = assets
+            .iter()
+            .find(|a| a.asset_type == "background")
+            .map(|a| a.file_path.clone());
+        let is_installed = is_game_installed(
+            &g.platform,
+            &g.exe_path,
+            &g.install_dir,
+            &g.steam_app_id,
+            &installed_appids,
+        );
+        dtos.push(GameDto {
+            id: g.id,
+            name: g.name,
+            platform: g.platform,
+            exe_path: g.exe_path,
+            install_dir: g.install_dir,
+            steam_app_id: g.steam_app_id,
+            igdb_id: g.igdb_id,
+            cover_url: resolve_cover_url(cover, app_data_dir),
+            background_url: resolve_cover_url(background, app_data_dir),
+            last_played: g.last_played,
+            added_at: g.added_at,
+            is_installed,
+        });
+    }
 
     Ok(dtos)
 }

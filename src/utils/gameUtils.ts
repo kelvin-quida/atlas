@@ -1,6 +1,59 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { SteamGame, GameDto, PlaytimeStats } from "../types/game";
 
+// Helper to identify and hide Steam Proton tools, runtimes, and redistributables
+export function isProtonOrSteamTool(name: string, appid?: string): boolean {
+  if (!name) return false;
+  if (
+    appid &&
+    [
+      "228980", "1070560", "1391110", "1628350", "1803580",
+      "1458770", "2348520", "2805730", "1887720", "1580130",
+      "1245040", "1229540", "1113280", "1168040", "2180100", "250820"
+    ].includes(appid)
+  ) {
+    return true;
+  }
+
+  const lower = name.toLowerCase().trim();
+  if (
+    lower === "proton" ||
+    lower.includes("ge-proton") ||
+    lower.includes("proton-ge") ||
+    lower.includes("proton-tkg") ||
+    lower.includes("steam linux runtime") ||
+    lower.includes("steamworks common redistributables") ||
+    lower.includes("steam controller configs")
+  ) {
+    return true;
+  }
+
+  if (lower.startsWith("proton")) {
+    const rest = lower.slice(6).trim();
+    if (!rest) return true;
+    const firstChar = rest.charAt(0);
+    if (/\d/.test(firstChar) || firstChar === "(" || firstChar === "-" || firstChar === ".") {
+      return true;
+    }
+    if (
+      rest.includes("experimental") ||
+      rest.includes("hotfix") ||
+      rest.includes("next") ||
+      rest.includes("easyanticheat") ||
+      rest.includes("battleye") ||
+      rest.includes("runtime") ||
+      rest.includes("container") ||
+      rest.includes("tool") ||
+      rest.includes("beta") ||
+      rest.includes("sdk")
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // Map a DB GameDto to the legacy SteamGame shape used throughout the UI
 export function gameDtoToSteamGame(dto: GameDto): SteamGame {
   return {

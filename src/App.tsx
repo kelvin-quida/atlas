@@ -20,7 +20,7 @@ import {
 } from "./types/game";
 
 // Utils
-import { gameDtoToSteamGame, getGameImageUrl } from "./utils/gameUtils";
+import { gameDtoToSteamGame, getGameImageUrl, isProtonOrSteamTool } from "./utils/gameUtils";
 
 // UI & Layout Components
 import { AmbientBackground } from "./components/ui/AmbientBackground";
@@ -389,11 +389,13 @@ function App() {
 
       // Load all games from the database
       const dtos = await invoke<GameDto[]>("db_list_games");
-      const allGames = dtos.map(gameDtoToSteamGame);
-      allGames.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+      const validGames = dtos
+        .map(gameDtoToSteamGame)
+        .filter((g) => !isProtonOrSteamTool(g.name, g.appid));
+      validGames.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
 
-      setSteamGames(allGames.filter((g) => !g.isCustom));
-      setCustomGames(allGames.filter((g) => g.isCustom));
+      setSteamGames(validGames.filter((g) => !g.isCustom));
+      setCustomGames(validGames.filter((g) => g.isCustom));
       setIsSimulated(false);
     } catch (err) {
       console.warn("[Atlas] Failed to load games from database:", err);

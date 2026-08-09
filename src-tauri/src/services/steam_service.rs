@@ -304,6 +304,59 @@ pub async fn get_owned_games(steam_id: &str) -> Result<Vec<SteamOwnedGame>, Stri
     Ok(data.response.games.unwrap_or_default())
 }
 
+/// Returns true if a game/app is a Steam runtime tool or Proton version (e.g. Proton 7.0, Proton Experimental, Steam Linux Runtime, Steamworks Common Redistributables, etc.).
+pub fn is_steam_tool_or_proton(name: &str, appid: Option<&str>) -> bool {
+    if let Some(id) = appid {
+        match id {
+            "228980" | "1070560" | "1391110" | "1628350" | "1803580"
+            | "1458770" | "2348520" | "2805730" | "1887720" | "1580130"
+            | "1245040" | "1229540" | "1113280" | "1168040" | "2180100"
+            | "250820" => return true,
+            _ => {}
+        }
+    }
+
+    let lower = name.to_lowercase();
+    let trimmed = lower.trim();
+
+    if trimmed == "proton"
+        || trimmed.contains("ge-proton")
+        || trimmed.contains("proton-ge")
+        || trimmed.contains("proton-tkg")
+        || trimmed.contains("steam linux runtime")
+        || trimmed.contains("steamworks common redistributables")
+        || trimmed.contains("steam controller configs")
+    {
+        return true;
+    }
+
+    if trimmed.starts_with("proton") {
+        let rest = trimmed["proton".len()..].trim_start();
+        if rest.is_empty() {
+            return true;
+        }
+        let first_char = rest.chars().next().unwrap_or(' ');
+        if first_char.is_ascii_digit() || first_char == '(' || first_char == '-' || first_char == '.' {
+            return true;
+        }
+        if rest.contains("experimental")
+            || rest.contains("hotfix")
+            || rest.contains("next")
+            || rest.contains("easyanticheat")
+            || rest.contains("battleye")
+            || rest.contains("runtime")
+            || rest.contains("container")
+            || rest.contains("tool")
+            || rest.contains("beta")
+            || rest.contains("sdk")
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
 /// Import all owned games into the database (upsert — update existing, insert new)
 pub async fn import_library(
     app: &tauri::AppHandle,
@@ -323,6 +376,10 @@ pub async fn import_library(
         let percentage = if total > 0 { (current * 100) / total } else { 100 };
         let app_id_str = steam_game.appid.to_string();
         let name = steam_game.name.clone().unwrap_or_else(|| format!("App {}", steam_game.appid));
+
+        if is_steam_tool_or_proton(&name, Some(&app_id_str)) {
+            continue;
+        }
 
         // Emit progress event to frontend
         let _ = app.emit(

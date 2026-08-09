@@ -293,7 +293,7 @@ fn parse_acf_file(path: &Path, library_path: &Path) -> Option<SteamGame> {
     if appid.is_empty() || name.is_empty() {
         return None;
     }
-    if appid == "228980" || name.contains("Steamworks Common Redistributables") {
+    if crate::services::steam_service::is_steam_tool_or_proton(&name, Some(&appid)) {
         return None;
     }
 
