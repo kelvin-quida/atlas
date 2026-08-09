@@ -17,6 +17,17 @@ export const GameInfoPanel: React.FC<GameInfoPanelProps> = ({
 }) => {
   if (!activeGame) return null;
 
+  if (activeGame.appid === "__LIBRARY_CARD__") {
+    return (
+      <div className="game-info-panel">
+        <h1 className="game-title-active">Minha Biblioteca</h1>
+        <div className="game-meta-active">
+          <span>Visualizar todos os jogos instalados e não instalados da sua coleção</span>
+        </div>
+      </div>
+    );
+  }
+
   if (currentTheme === "ps5") {
     return (
       <div className="game-info-panel">

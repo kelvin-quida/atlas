@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
@@ -32,6 +32,7 @@ import { Header } from "./components/features/header/Header";
 import { GameCarousel } from "./components/features/library/GameCarousel";
 import { GameInfoPanel } from "./components/features/library/GameInfoPanel";
 import { EmptyLibrary } from "./components/features/library/EmptyLibrary";
+import { LibraryModal } from "./components/features/library/LibraryModal";
 import { AtlasGameDetailView } from "./components/features/game-details/AtlasGameDetailView";
 import { SettingsModal } from "./components/features/settings/SettingsModal";
 import { OptionsMenuModal } from "./components/features/modals/OptionsMenuModal";
@@ -48,11 +49,36 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [editingSearchingIgdb, setEditingSearchingIgdb] = useState(false);
 
+  const installedGames = useMemo(() => {
+    return games.filter((g) => g.is_installed);
+  }, [games]);
+
+  const uninstalledGames = useMemo(() => {
+    return games.filter((g) => !g.is_installed);
+  }, [games]);
+
+  const libraryCardItem: SteamGame = useMemo(
+    () => ({
+      appid: "__LIBRARY_CARD__",
+      name: "Minha Biblioteca",
+      installdir: "",
+      library_path: "",
+      image_url: "",
+      is_installed: true,
+    }),
+    []
+  );
+
+  const carouselGames = useMemo(() => {
+    return [...installedGames, libraryCardItem];
+  }, [installedGames, libraryCardItem]);
+
   const [isSimulated, setIsSimulated] = useState(false);
   const [ambientBgUrl, setAmbientBgUrl] = useState("");
 
   const [launchingGame, setLaunchingGame] = useState<SteamGame | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("geral");
   const [currentTheme, setCurrentTheme] = useState<string>(() => {
     return localStorage.getItem("atlas_theme") || "atlas";
@@ -201,9 +227,10 @@ function App() {
 
   // Ref to hold current state values for the gamepad loop
   const stateRef = useRef({
-    games,
+    games: carouselGames,
     selectedGameIndex,
     settingsOpen,
+    isLibraryOpen,
     launchingGame,
     loading,
     youtubeActive,
@@ -227,9 +254,10 @@ function App() {
   // Sync state values with ref
   useEffect(() => {
     stateRef.current = {
-      games,
+      games: carouselGames,
       selectedGameIndex,
       settingsOpen,
+      isLibraryOpen,
       launchingGame,
       loading,
       youtubeActive,
@@ -250,9 +278,10 @@ function App() {
       detailSelectedIndex,
     };
   }, [
-    games,
+    carouselGames,
     selectedGameIndex,
     settingsOpen,
+    isLibraryOpen,
     launchingGame,
     loading,
     youtubeActive,
@@ -495,11 +524,14 @@ function App() {
     const merged = [...steamGames, ...customGames];
     merged.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
     setGames(merged);
-
-    if (selectedGameIndex >= merged.length && merged.length > 0) {
-      setSelectedGameIndex(merged.length - 1);
-    }
   }, [steamGames, customGames]);
+
+  // Clamp selectedGameIndex to valid bounds in carouselGames
+  useEffect(() => {
+    if (selectedGameIndex >= carouselGames.length && carouselGames.length > 0) {
+      setSelectedGameIndex(carouselGames.length - 1);
+    }
+  }, [carouselGames, selectedGameIndex]);
 
   // Auto-fetch IGDB images for games without cover urls
   useEffect(() => {
@@ -538,9 +570,9 @@ function App() {
 
   // Smoothly preload ambient background images to avoid delays/flashes
   useEffect(() => {
-    if (loading || games.length === 0) return;
-    const activeGame = games[selectedGameIndex];
-    if (!activeGame) {
+    if (loading || carouselGames.length === 0) return;
+    const activeGame = carouselGames[selectedGameIndex] || installedGames[0];
+    if (!activeGame || activeGame.appid === "__LIBRARY_CARD__") {
       setAmbientBgUrl("");
       return;
     }
@@ -594,7 +626,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [selectedGameIndex, games, loading]);
+  }, [selectedGameIndex, carouselGames, loading]);
 
   // Check if custom registry Windows shell replacement is currently enabled
   const checkShellStatus = async () => {
@@ -678,6 +710,10 @@ function App() {
   };
 
   const handleTryLaunchGame = (game: SteamGame) => {
+    if (game.appid === "__LIBRARY_CARD__") {
+      setIsLibraryOpen(true);
+      return;
+    }
     setOptionsMenuSelectedIndex(0);
     setOptionsMenuGame(game);
   };
@@ -1037,7 +1073,7 @@ function App() {
         return;
       }
 
-      if (settingsOpen || launchingGame || loading || optionsMenuGame || editingGame) return;
+      if (settingsOpen || launchingGame || loading || optionsMenuGame || editingGame || isLibraryOpen) return;
 
       if (youtubeActive) {
         if (e.key === "Escape" || e.key === "Backspace") {
@@ -1063,7 +1099,7 @@ function App() {
         return;
       }
 
-      if (games.length === 0) {
+      if (carouselGames.length === 0) {
         if (e.key === "s" || e.key === "S") {
           e.preventDefault();
           setSettingsOpen(true);
@@ -1225,7 +1261,7 @@ function App() {
 
   // Scroll carousel to center active card
   useEffect(() => {
-    if (carouselRef.current && games.length > 0) {
+    if (carouselRef.current && carouselGames.length > 0) {
       const container = carouselRef.current;
       const cards = container.getElementsByClassName("game-card");
       const activeCard = cards[selectedGameIndex] as HTMLElement;
@@ -1241,7 +1277,7 @@ function App() {
         });
       }
     }
-  }, [selectedGameIndex, games]);
+  }, [selectedGameIndex, carouselGames]);
 
   // Unified Gamepad Registration for Main Application Layer
   useEffect(() => {
@@ -1250,6 +1286,7 @@ function App() {
         games: currentGames,
         selectedGameIndex: currentIndex,
         settingsOpen: isSettingsOpen,
+        isLibraryOpen,
         launchingGame: isLaunching,
         loading: isLoading,
         youtubeActive: isYoutubeActive,
@@ -1269,7 +1306,7 @@ function App() {
         detailSelectedIndex: detailIdx,
       } = stateRef.current;
 
-      if (isLoading || isLaunching) return true;
+      if (isLoading || isLaunching || isSettingsOpen || isLibraryOpen) return true;
 
       if (isYoutubeActive) {
         const sendAction = (action: string) => {
@@ -1422,12 +1459,15 @@ function App() {
             setFocusArea("header");
             setHeaderSelectedIndex(0);
           } else if (actions.a || actions.start) {
-            if (currentGames[currentIndex]) {
-              if (theme === "atlas") {
-                setActiveDetailGame(currentGames[currentIndex]);
+            const selectedItem = currentGames[currentIndex];
+            if (selectedItem) {
+              if (selectedItem.appid === "__LIBRARY_CARD__") {
+                setIsLibraryOpen(true);
+              } else if (theme === "atlas") {
+                setActiveDetailGame(selectedItem);
                 setDetailSelectedIndex(0);
               } else {
-                handleTryLaunchGame(currentGames[currentIndex]);
+                handleTryLaunchGame(selectedItem);
               }
             }
           } else if (actions.select) {
@@ -1515,10 +1555,14 @@ function App() {
       });
   };
 
-  const activeGame = games[selectedGameIndex];
+  const activeGame = carouselGames[selectedGameIndex] || installedGames[0] || null;
 
   const handleSelectGameInCarousel = (index: number, game: SteamGame) => {
     setSelectedGameIndex(index);
+    if (game.appid === "__LIBRARY_CARD__") {
+      setIsLibraryOpen(true);
+      return;
+    }
     if (currentTheme === "atlas") {
       setActiveDetailGame(game);
       setDetailSelectedIndex(0);
@@ -1599,13 +1643,16 @@ function App() {
               </div>
             ) : (
               <GameCarousel
-                games={games}
+                games={carouselGames}
                 selectedGameIndex={selectedGameIndex}
                 focusArea={focusArea}
                 imageErrors={imageErrors}
                 carouselRef={carouselRef}
+                uninstalledCount={uninstalledGames.length}
+                totalGamesCount={games.length}
                 onSelectGame={handleSelectGameInCarousel}
                 onImageError={handleImageError}
+                onOpenLibrary={() => setIsLibraryOpen(true)}
               />
             )}
           </>
@@ -1619,6 +1666,14 @@ function App() {
       }
       modals={
         <>
+          <LibraryModal
+            isOpen={isLibraryOpen}
+            games={games}
+            playtimes={playtimes}
+            onClose={() => setIsLibraryOpen(false)}
+            onTryLaunchGame={handleTryLaunchGame}
+          />
+
           <SettingsModal
             isOpen={settingsOpen}
             settingsTab={settingsTab}

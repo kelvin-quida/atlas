@@ -103,6 +103,15 @@ pub async fn create_game(
         None
     };
 
+    let installed_appids = crate::get_installed_steam_appids();
+    let is_installed = is_game_installed(
+        &platform,
+        &input.exe_path,
+        &input.install_dir,
+        &input.steam_app_id,
+        &installed_appids,
+    );
+
     Ok(GameDto {
         id,
         name: input.name,
@@ -115,7 +124,36 @@ pub async fn create_game(
         background_url: None,
         last_played: None,
         added_at: now,
+        is_installed,
     })
+}
+
+fn is_game_installed(
+    platform: &str,
+    exe_path: &Option<String>,
+    install_dir: &Option<String>,
+    steam_app_id: &Option<String>,
+    installed_appids: &std::collections::HashSet<String>,
+) -> bool {
+    if platform == "manual" {
+        return true;
+    }
+    if let Some(ref p) = exe_path {
+        if !p.trim().is_empty() {
+            return true;
+        }
+    }
+    if let Some(ref dir) = install_dir {
+        if !dir.trim().is_empty() {
+            return true;
+        }
+    }
+    if let Some(ref appid) = steam_app_id {
+        if installed_appids.contains(appid) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Returns all games with their primary cover asset resolved.
@@ -129,6 +167,8 @@ pub async fn list_games(
         .await
         .map_err(|e| format!("DB query error: {}", e))?;
 
+    let installed_appids = crate::get_installed_steam_appids();
+
     let dtos = games
         .into_iter()
         .map(|(g, assets)| {
@@ -140,6 +180,13 @@ pub async fn list_games(
                 .iter()
                 .find(|a| a.asset_type == "background")
                 .map(|a| a.file_path.clone());
+            let is_installed = is_game_installed(
+                &g.platform,
+                &g.exe_path,
+                &g.install_dir,
+                &g.steam_app_id,
+                &installed_appids,
+            );
             GameDto {
                 id: g.id,
                 name: g.name,
@@ -152,6 +199,7 @@ pub async fn list_games(
                 background_url: resolve_cover_url(background, app_data_dir),
                 last_played: g.last_played,
                 added_at: g.added_at,
+                is_installed,
             }
         })
         .collect();
@@ -307,6 +355,15 @@ pub async fn update_game(
             .map(|a| a.file_path)
     };
 
+    let installed_appids = crate::get_installed_steam_appids();
+    let is_installed = is_game_installed(
+        &model.platform,
+        &model.exe_path,
+        &model.install_dir,
+        &model.steam_app_id,
+        &installed_appids,
+    );
+
     Ok(GameDto {
         id: model.id,
         name: model.name,
@@ -319,6 +376,7 @@ pub async fn update_game(
         background_url: resolve_cover_url(bg_path, app_data_dir),
         last_played: model.last_played,
         added_at: model.added_at,
+        is_installed,
     })
 }
 

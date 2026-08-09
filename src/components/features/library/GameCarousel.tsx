@@ -1,6 +1,7 @@
 import React from "react";
 import { SteamGame, FocusArea } from "../../../types/game";
 import { GameCard } from "./GameCard";
+import { LibraryCard } from "./LibraryCard";
 
 interface GameCarouselProps {
   games: SteamGame[];
@@ -8,8 +9,11 @@ interface GameCarouselProps {
   focusArea: FocusArea;
   imageErrors: Record<string, boolean>;
   carouselRef: React.RefObject<HTMLDivElement | null>;
+  uninstalledCount?: number;
+  totalGamesCount?: number;
   onSelectGame: (index: number, game: SteamGame) => void;
   onImageError: (appid: string) => void;
+  onOpenLibrary?: () => void;
 }
 
 export const GameCarousel: React.FC<GameCarouselProps> = ({
@@ -18,8 +22,11 @@ export const GameCarousel: React.FC<GameCarouselProps> = ({
   focusArea,
   imageErrors,
   carouselRef,
+  uninstalledCount = 0,
+  totalGamesCount = 0,
   onSelectGame,
   onImageError,
+  onOpenLibrary,
 }) => {
   return (
     <div className="games-carousel-wrapper">
@@ -27,6 +34,22 @@ export const GameCarousel: React.FC<GameCarouselProps> = ({
         {games.map((game, index) => {
           const isFocused =
             index === selectedGameIndex && focusArea === "carousel";
+
+          if (game.appid === "__LIBRARY_CARD__") {
+            return (
+              <LibraryCard
+                key="__LIBRARY_CARD__"
+                isFocused={isFocused}
+                uninstalledCount={uninstalledCount}
+                totalCount={totalGamesCount}
+                onClick={() => {
+                  if (onOpenLibrary) onOpenLibrary();
+                  else onSelectGame(index, game);
+                }}
+              />
+            );
+          }
+
           const isErr = imageErrors[game.appid] || !game.image_url;
 
           return (

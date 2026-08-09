@@ -63,4 +63,5 @@ pub struct GameDto {
     pub background_url: Option<String>, // resolved at query time from image_assets
     pub last_played: Option<String>,
     pub added_at: String,
+    pub is_installed: bool,
 }

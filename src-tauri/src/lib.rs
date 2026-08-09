@@ -177,7 +177,7 @@ fn get_steam_install_path() -> Option<PathBuf> {
     None
 }
 
-fn get_steam_libraries() -> Vec<PathBuf> {
+pub fn get_steam_libraries() -> Vec<PathBuf> {
     use std::fs::File;
     use std::io::{BufRead, BufReader};
 
@@ -234,6 +234,28 @@ fn get_steam_libraries() -> Vec<PathBuf> {
     }
 
     libraries
+}
+
+pub fn get_installed_steam_appids() -> std::collections::HashSet<String> {
+    let mut installed = std::collections::HashSet::new();
+    for lib in get_steam_libraries() {
+        let steamapps_path = lib.join("steamapps");
+        if let Ok(entries) = std::fs::read_dir(&steamapps_path) {
+            for entry in entries.flatten() {
+                let file_name = entry.file_name().to_string_lossy().into_owned();
+                if file_name.starts_with("appmanifest_") && file_name.ends_with(".acf") {
+                    let appid = file_name
+                        .trim_start_matches("appmanifest_")
+                        .trim_end_matches(".acf")
+                        .to_string();
+                    if !appid.is_empty() {
+                        installed.insert(appid);
+                    }
+                }
+            }
+        }
+    }
+    installed
 }
 
 fn extract_acf_value(line: &str) -> Option<String> {

@@ -14,6 +14,7 @@ export function gameDtoToSteamGame(dto: GameDto): SteamGame {
     exe_path: dto.exe_path,
     last_played: dto.last_played,
     added_at: dto.added_at,
+    is_installed: dto.is_installed ?? (dto.platform === "manual" || !!dto.exe_path || !!dto.install_dir),
   };
 }
 

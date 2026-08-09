@@ -9,6 +9,7 @@ export interface SteamGame {
   exe_path?: string;
   last_played?: string;
   added_at?: string;
+  is_installed?: boolean;
 }
 
 // Shape of the DB DTO returned from Rust
@@ -24,6 +25,7 @@ export interface GameDto {
   background_url?: string;
   last_played?: string;
   added_at: string;
+  is_installed: boolean;
 }
 
 export interface PlaytimeStats {
