@@ -117,7 +117,7 @@ pub struct LegacyGame {
 
 /// Searches for candidate images (cover/background) in background based on search query.
 #[tauri::command]
-pub async fn search_game_images(query: String) -> Result<Vec<String>, String> {
-    crate::services::image_service::search_images(&query).await
+pub async fn search_game_images(query: String, target: Option<String>) -> Result<Vec<String>, String> {
+    crate::services::image_service::search_images(&query, target.as_deref()).await
 }
 

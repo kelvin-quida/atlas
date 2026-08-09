@@ -82,7 +82,7 @@ function App() {
   const [imagePickerLoading, setImagePickerLoading] = useState(false);
   const [imagePickerQuery, setImagePickerQuery] = useState("");
   const [imagePickerResults, setImagePickerResults] = useState<string[]>([]);
-  const [imagePickerSelectedIndex, setImagePickerSelectedIndex] = useState(0);
+  const [imagePickerSelectedIndex, setImagePickerSelectedIndex] = useState(-1);
 
   // States for header focus and navigation
   const [focusArea, setFocusArea] = useState<FocusArea>("carousel");
@@ -787,11 +787,12 @@ function App() {
     setImagePickerOpen(true);
     setImagePickerLoading(true);
     setImagePickerResults([]);
-    setImagePickerSelectedIndex(0);
+    setImagePickerSelectedIndex(-1);
 
     try {
       const urls = await invoke<string[]>("search_game_images", {
         query: defaultQuery,
+        target,
       });
       setImagePickerResults(urls);
     } catch (err) {
@@ -806,10 +807,11 @@ function App() {
     const queryToUse = customQuery !== undefined ? customQuery : imagePickerQuery;
     if (!queryToUse.trim()) return;
     setImagePickerLoading(true);
-    setImagePickerSelectedIndex(0);
+    setImagePickerSelectedIndex(-1);
     try {
       const urls = await invoke<string[]>("search_game_images", {
         query: queryToUse,
+        target: imagePickerTarget,
       });
       setImagePickerResults(urls);
     } catch (err) {

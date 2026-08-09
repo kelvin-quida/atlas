@@ -180,7 +180,7 @@ fn extract_vqd(html: &str) -> Option<String> {
 
 /// Searches Bing Images and DuckDuckGo for candidate images corresponding to `query`.
 /// Returns a list of image URLs.
-pub async fn search_images(query: &str) -> Result<Vec<String>, String> {
+pub async fn search_images(query: &str, target: Option<&str>) -> Result<Vec<String>, String> {
     let client = Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
         .build()
@@ -188,11 +188,27 @@ pub async fn search_images(query: &str) -> Result<Vec<String>, String> {
 
     let mut urls = Vec::new();
 
+    let qft_filter = match target {
+        Some("cover") => "+filterui:aspect-tall",
+        Some("background") => "+filterui:aspect-wide",
+        _ => {
+            if query.to_lowercase().contains("cover") || query.to_lowercase().contains("capa") {
+                "+filterui:aspect-tall"
+            } else if query.to_lowercase().contains("background") || query.to_lowercase().contains("fundo") || query.to_lowercase().contains("wallpaper") {
+                "+filterui:aspect-wide"
+            } else {
+                ""
+            }
+        }
+    };
+
     // 1. Try Bing Images Async endpoint (Fast & High Quality)
-    let bing_url = reqwest::Url::parse_with_params(
-        "https://www.bing.com/images/async",
-        &[("q", query), ("first", "1"), ("count", "35")],
-    );
+    let mut params = vec![("q", query), ("first", "1"), ("count", "40")];
+    if !qft_filter.is_empty() {
+        params.push(("qft", qft_filter));
+    }
+
+    let bing_url = reqwest::Url::parse_with_params("https://www.bing.com/images/async", &params);
     if let Ok(u) = bing_url {
         if let Ok(res) = client.get(u).send().await {
             if let Ok(html) = res.text().await {
@@ -208,6 +224,20 @@ pub async fn search_images(query: &str) -> Result<Vec<String>, String> {
 
     // 2. Try DuckDuckGo Images if Bing returned fewer than 10 images
     if urls.len() < 10 {
+        let ddg_aspect = match target {
+            Some("cover") => ",aspect:tall,,",
+            Some("background") => ",aspect:wide,,",
+            _ => {
+                if query.to_lowercase().contains("cover") || query.to_lowercase().contains("capa") {
+                    ",aspect:tall,,"
+                } else if query.to_lowercase().contains("background") || query.to_lowercase().contains("wallpaper") {
+                    ",aspect:wide,,"
+                } else {
+                    ",,,"
+                }
+            }
+        };
+
         let init_url = reqwest::Url::parse_with_params(
             "https://duckduckgo.com/",
             &[("q", query), ("iax", "images"), ("ia", "images")],
@@ -223,7 +253,7 @@ pub async fn search_images(query: &str) -> Result<Vec<String>, String> {
                                 ("o", "json"),
                                 ("q", query),
                                 ("vqd", &vqd),
-                                ("f", ",,,"),
+                                ("f", ddg_aspect),
                                 ("p", "1"),
                             ],
                         );

@@ -89,7 +89,7 @@ export const ImagePickerModal: React.FC<ImagePickerModalProps> = ({
             </span>
           </div>
         ) : (
-          <div className="image-picker-grid">
+          <div className={`image-picker-grid ${imagePickerTarget === "cover" ? "is-cover" : "is-background"}`}>
             {imagePickerResults.map((url, idx) => (
               <div
                 key={url + "-" + idx}
@@ -111,6 +111,20 @@ export const ImagePickerModal: React.FC<ImagePickerModalProps> = ({
                   src={url}
                   alt={`Opção ${idx + 1}`}
                   loading="lazy"
+                  onLoad={(e) => {
+                    const img = e.currentTarget;
+                    const card = img.parentElement;
+                    if (!card) return;
+                    if (imagePickerTarget === "cover") {
+                      if (img.naturalWidth > img.naturalHeight * 1.15) {
+                        card.classList.add("hidden-img");
+                      }
+                    } else if (imagePickerTarget === "background") {
+                      if (img.naturalHeight > img.naturalWidth * 1.15) {
+                        card.classList.add("hidden-img");
+                      }
+                    }
+                  }}
                   onError={(e) => {
                     const card = (e.target as HTMLImageElement).parentElement;
                     if (card) card.classList.add("hidden-img");

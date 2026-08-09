@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useId } from "react";
 import { VirtualKeyboard } from "./VirtualKeyboard";
 import { useGamepad } from "../providers/GamepadContext";
 import { navigateSpatially, focusElement } from "../core/navigation/spatialNavigation";
@@ -26,7 +26,9 @@ export const GamepadModal: React.FC<GamepadModalProps> = ({
   className = "",
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { pushLayer, popLayer, registerLayerHandler } = useGamepad();
+  const { pushLayer, popLayer, registerLayerHandler, activeLayer } = useGamepad();
+  const generatedId = useId();
+  const layerId = `modal-${generatedId}`;
 
   // Virtual Keyboard state
   const [keyboardConfig, setKeyboardConfig] = useState<{
@@ -70,36 +72,38 @@ export const GamepadModal: React.FC<GamepadModalProps> = ({
     setKeyboardConfig(null);
   };
 
-  // Register Gamepad Layer
+  // Register Gamepad Layer with unique instance ID
   useEffect(() => {
     if (isOpen) {
-      pushLayer("modal");
+      pushLayer(layerId);
     } else {
-      popLayer("modal");
+      popLayer(layerId);
     }
     return () => {
-      popLayer("modal");
+      popLayer(layerId);
     };
-  }, [isOpen, pushLayer, popLayer]);
+  }, [isOpen, layerId, pushLayer, popLayer]);
 
-  // Initial Focus Trap
+  // Focus Trap & Focus Restoration when modal becomes active
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && activeLayer === layerId) {
       const timer = setTimeout(() => {
         if (!containerRef.current) return;
-        const paneCandidate = containerRef.current.querySelector<HTMLElement>(
-          ".playnite-tab-pane button:not([disabled]), .playnite-tab-pane input:not([disabled]), .playnite-tab-pane select:not([disabled]), .playnite-tab-pane textarea:not([disabled]), .playnite-tab-pane [tabindex='0'], .playnite-tab-pane .focusable"
-        );
-        const anyCandidate = containerRef.current.querySelector<HTMLElement>(
-          "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex='0'], .focusable"
-        );
+        if (!document.activeElement || !containerRef.current.contains(document.activeElement)) {
+          const paneCandidate = containerRef.current.querySelector<HTMLElement>(
+            ".playnite-tab-pane button:not([disabled]), .playnite-tab-pane input:not([disabled]), .playnite-tab-pane select:not([disabled]), .playnite-tab-pane textarea:not([disabled]), .playnite-tab-pane [tabindex='0'], .playnite-tab-pane .focusable"
+          );
+          const anyCandidate = containerRef.current.querySelector<HTMLElement>(
+            "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex='0'], .focusable"
+          );
 
-        const toFocus = paneCandidate || anyCandidate;
-        if (toFocus) focusElement(toFocus);
+          const toFocus = paneCandidate || anyCandidate;
+          if (toFocus) focusElement(toFocus);
+        }
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [isOpen, activeTab]);
+  }, [isOpen, activeTab, activeLayer, layerId]);
 
   // Keyboard Navigation Listeners
   useEffect(() => {
@@ -177,7 +181,7 @@ export const GamepadModal: React.FC<GamepadModalProps> = ({
   useEffect(() => {
     if (!isOpen || keyboardConfig?.isOpen) return;
 
-    const unregister = registerLayerHandler("modal", (actions: GamepadActionState) => {
+    const unregister = registerLayerHandler(layerId, (actions: GamepadActionState) => {
       if (actions.b) {
         onClose();
         return true;
@@ -238,7 +242,7 @@ export const GamepadModal: React.FC<GamepadModalProps> = ({
     });
 
     return () => unregister();
-  }, [isOpen, onClose, tabs, activeTab, onTabChange, keyboardConfig?.isOpen, registerLayerHandler]);
+  }, [isOpen, layerId, onClose, tabs, activeTab, onTabChange, keyboardConfig?.isOpen, registerLayerHandler]);
 
   if (!isOpen) return null;
 
