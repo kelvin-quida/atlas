@@ -44,10 +44,23 @@ body {
   background-size: cover;
   background-position: center center;
   filter: blur(0px) brightness(0.65) saturate(1.2);
-  transition: background-image 0.8s ease-in-out, filter 0.5s ease;
   z-index: 0;
   transform: scale(1.05);
+  will-change: opacity;
   /* prevents white edges from blur */
+}
+
+.ambient-bg-fade-in {
+  animation: ambientFadeIn 0.35s ease-out forwards;
+}
+
+@keyframes ambientFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .ambient-overlay {

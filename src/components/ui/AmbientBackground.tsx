@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { SteamGame } from "../../types/game";
 import { getGradientBg } from "../../utils/gameUtils";
 
@@ -11,13 +11,47 @@ export const AmbientBackground: React.FC<AmbientBackgroundProps> = ({
   ambientBgUrl,
   activeGame,
 }) => {
+  const [currentUrl, setCurrentUrl] = useState(ambientBgUrl);
+  const [prevUrl, setPrevUrl] = useState("");
+  const [isFading, setIsFading] = useState(false);
+
+  useEffect(() => {
+    if (ambientBgUrl !== currentUrl) {
+      setPrevUrl(currentUrl);
+      setCurrentUrl(ambientBgUrl);
+      setIsFading(true);
+
+      const timer = setTimeout(() => {
+        setIsFading(false);
+        setPrevUrl("");
+      }, 350);
+
+      return () => clearTimeout(timer);
+    }
+  }, [ambientBgUrl, currentUrl]);
+
   return (
     <>
+      {/* Camada do background anterior (permanece visível por baixo durante a transição) */}
+      {isFading && prevUrl && (
+        <div
+          className="ambient-bg"
+          style={{
+            backgroundImage: `url(${prevUrl})`,
+            backgroundColor: "var(--bg-primary)",
+            zIndex: 0,
+          }}
+        />
+      )}
+
+      {/* Camada do background atual (faz fade-in por cima sem distorcer o tamanho da imagem) */}
       <div
-        className="ambient-bg"
+        key={currentUrl}
+        className={`ambient-bg ${isFading ? "ambient-bg-fade-in" : ""}`}
         style={{
-          backgroundImage: ambientBgUrl ? `url(${ambientBgUrl})` : "none",
-          backgroundColor: ambientBgUrl ? "var(--bg-primary)" : "transparent",
+          backgroundImage: currentUrl ? `url(${currentUrl})` : "none",
+          backgroundColor: currentUrl ? "var(--bg-primary)" : "transparent",
+          zIndex: isFading ? 1 : 0,
         }}
       >
         {activeGame && !activeGame.image_url && (
@@ -31,7 +65,7 @@ export const AmbientBackground: React.FC<AmbientBackgroundProps> = ({
           />
         )}
       </div>
-      <div className="ambient-overlay" />
+      <div className="ambient-overlay" style={{ zIndex: 2 }} />
     </>
   );
 };
