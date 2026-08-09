@@ -1583,6 +1583,7 @@ pub fn run() {
             commands::game_commands::db_update_game,
             commands::game_commands::db_migrate_from_localstorage,
             commands::game_commands::search_game_images,
+            commands::media_commands::db_get_game_media,
             // ── Playtime tracking commands (Phase 5) ─────────────────────────────────
             commands::playtime_commands::start_play_session,
             commands::playtime_commands::end_play_session,
