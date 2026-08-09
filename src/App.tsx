@@ -32,7 +32,6 @@ import { AtlasGameDetailView } from "./components/features/game-details/AtlasGam
 import { SettingsModal } from "./components/features/settings/SettingsModal";
 import { OptionsMenuModal } from "./components/features/modals/OptionsMenuModal";
 import { EditGameModal } from "./components/features/modals/EditGameModal";
-import { AddGameModal } from "./components/features/modals/AddGameModal";
 import { FileExplorerModal } from "./components/features/modals/FileExplorerModal";
 import { ImagePickerModal } from "./components/features/modals/ImagePickerModal";
 
@@ -43,7 +42,6 @@ function App() {
   const [games, setGames] = useState<SteamGame[]>([]);
   const [selectedGameIndex, setSelectedGameIndex] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [_searchingIgdb, setSearchingIgdb] = useState(false);
   const [editingSearchingIgdb, setEditingSearchingIgdb] = useState(false);
 
   const [isSimulated, setIsSimulated] = useState(false);
@@ -90,11 +88,6 @@ function App() {
   const [focusArea, setFocusArea] = useState<FocusArea>("carousel");
   const [headerSelectedIndex, setHeaderSelectedIndex] = useState(0);
 
-  // Form states for adding custom game
-  const [customName, setCustomName] = useState("");
-  const [customExe, setCustomExe] = useState("");
-  const [customImg, setCustomImg] = useState("");
-
   // In-App File Explorer States
   const [fileExplorerOpen, setFileExplorerOpen] = useState(false);
   const [fileExplorerPath, setFileExplorerPath] = useState("");
@@ -103,15 +96,6 @@ function App() {
   const [fileExplorerFilter, setFileExplorerFilter] = useState<string[]>([]);
   const [fileExplorerOnSelect, setFileExplorerOnSelect] = useState<((path: string) => void) | null>(null);
   const [availableDrives, setAvailableDrives] = useState<string[]>([]);
-  const [selectedDrives, setSelectedDrives] = useState<Record<string, boolean>>({});
-
-  // Xbox-Style Add Game Modal States
-  const [addGameModalOpen, setAddGameModalOpen] = useState(false);
-  const [installedApps, setInstalledApps] = useState<any[]>([]);
-  const [loadingApps, setLoadingApps] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [detectedSelectedIndex, setDetectedSelectedIndex] = useState(0);
-  const [addGameSelectedIndex, setAddGameSelectedIndex] = useState(0);
 
   const carouselRef = useRef<HTMLDivElement | null>(null);
   const igdbAttemptsRef = useRef<Record<string, boolean>>({});
@@ -161,7 +145,6 @@ function App() {
         loading ||
         optionsMenuGame ||
         editingGame ||
-        addGameModalOpen ||
         fileExplorerOpen
       )
         return;
@@ -201,7 +184,6 @@ function App() {
     loading,
     optionsMenuGame,
     editingGame,
-    addGameModalOpen,
     fileExplorerOpen,
   ]);
 
@@ -225,11 +207,6 @@ function App() {
     fileExplorerOpen,
     fileExplorerSelectedIndex,
     fileExplorerItems,
-    addGameModalOpen,
-    addGameSelectedIndex,
-    detectedSelectedIndex,
-    installedApps,
-    searchQuery,
     activeDetailGame,
     detailSelectedIndex,
   });
@@ -255,11 +232,6 @@ function App() {
       fileExplorerOpen,
       fileExplorerSelectedIndex,
       fileExplorerItems,
-      addGameModalOpen,
-      addGameSelectedIndex,
-      detectedSelectedIndex,
-      installedApps,
-      searchQuery,
       activeDetailGame,
       detailSelectedIndex,
     };
@@ -282,11 +254,6 @@ function App() {
     fileExplorerOpen,
     fileExplorerSelectedIndex,
     fileExplorerItems,
-    addGameModalOpen,
-    addGameSelectedIndex,
-    detectedSelectedIndex,
-    installedApps,
-    searchQuery,
     activeDetailGame,
     detailSelectedIndex,
   ]);
@@ -708,46 +675,38 @@ function App() {
   handleFileExplorerSelectRef.current = handleFileExplorerSelect;
 
   const openAddGameModal = () => {
-    setCustomName("");
-    setCustomExe("");
-    setCustomImg("");
-    setSearchQuery("");
-    setDetectedSelectedIndex(0);
-    setAddGameSelectedIndex(0);
+    openFileExplorer(["exe", "sh", "bin"], async (selectedPath) => {
+      if (!selectedPath) return;
 
-    setLoadingApps(true);
-    invoke<string[]>("get_drives")
-      .then((drives) => {
-        setAvailableDrives(drives);
-        const initDrives: Record<string, boolean> = {};
-        drives.forEach((d) => {
-          initDrives[d] = true;
+      const parts = selectedPath.replace(/\\/g, "/").split("/");
+      const fileName = parts[parts.length - 1] || "";
+      const dotIndex = fileName.lastIndexOf(".");
+      const rawName = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
+      const gameName = rawName.replace(/[-_]+/g, " ").trim();
+
+      let coverUrl: string | null = null;
+      try {
+        coverUrl = await invoke<string>("get_game_image_url", {
+          gameName: gameName,
         });
-        setSelectedDrives(initDrives);
-      })
-      .catch((err) => console.error("Erro ao carregar drives:", err));
+      } catch (err) {
+        console.warn("Could not fetch game cover automatically:", err);
+      }
 
-    invoke<any[]>("get_installed_apps")
-      .then((apps) => {
-        setInstalledApps(apps);
-        setLoadingApps(false);
-      })
-      .catch((err) => {
-        console.error("Erro ao obter apps instalados:", err);
-        setLoadingApps(false);
-      });
-
-    setAddGameModalOpen(true);
-  };
-
-  const handlePickExe = () => {
-    openFileExplorer(["exe", "sh", "bin"], (path) => {
-      setCustomExe(path);
-      if (!customName && path) {
-        const parts = path.replace(/\\/g, "/").split("/");
-        const fileName = parts[parts.length - 1];
-        const dotIndex = fileName.lastIndexOf(".");
-        setCustomName(dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName);
+      try {
+        const dto = await invoke<GameDto>("db_add_game", {
+          name: gameName,
+          exePath: selectedPath,
+          installDir: null,
+          steamAppId: null,
+          platform: "manual",
+          coverUrl: coverUrl || null,
+        });
+        const newGame = gameDtoToSteamGame(dto);
+        setCustomGames((prev) => [...prev, newGame]);
+      } catch (err) {
+        console.error("Failed to add game:", err);
+        alert(`Erro ao adicionar o jogo: ${err}`);
       }
     });
   };
@@ -762,48 +721,6 @@ function App() {
         setEditName(dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName);
       }
     });
-  };
-
-  const handleAddCustomGameSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!customName || !customExe) {
-      alert("Por favor, preencha pelo menos o Nome e o Executável.");
-      return;
-    }
-
-    setSearchingIgdb(true);
-    let resolvedImg = customImg;
-    if (!resolvedImg) {
-      try {
-        resolvedImg = await invoke<string>("get_game_image_url", {
-          gameName: customName,
-        });
-      } catch (err) {
-        console.warn("Could not auto-fetch image during addition:", err);
-      }
-    }
-
-    try {
-      const dto = await invoke<GameDto>("db_add_game", {
-        name: customName,
-        exePath: customExe,
-        installDir: null,
-        steamAppId: null,
-        platform: "manual",
-        coverUrl: resolvedImg || null,
-      });
-      const newGame = gameDtoToSteamGame(dto);
-      setCustomGames((prev) => [...prev, newGame]);
-    } catch (err) {
-      console.error("Failed to add game to database:", err);
-      alert(`Erro ao salvar o jogo: ${err}`);
-    }
-
-    setCustomName("");
-    setCustomExe("");
-    setCustomImg("");
-    setAddGameModalOpen(false);
-    setSearchingIgdb(false);
   };
 
   const handleDeleteCustomGame = async (appid: string) => {
@@ -912,20 +829,7 @@ function App() {
   };
 
   // Refs for scrolling container
-  const detectedListRef = useRef<HTMLDivElement | null>(null);
   const fileExplorerListRef = useRef<HTMLDivElement | null>(null);
-
-  // Auto-scroll to center active elements
-  useEffect(() => {
-    if (detectedListRef.current && addGameModalOpen) {
-      const container = detectedListRef.current;
-      const items = container.getElementsByClassName("detected-app-item");
-      const activeItem = items[detectedSelectedIndex] as HTMLElement;
-      if (activeItem) {
-        activeItem.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      }
-    }
-  }, [detectedSelectedIndex, addGameModalOpen]);
 
   useEffect(() => {
     if (fileExplorerListRef.current && fileExplorerOpen) {
@@ -937,118 +841,6 @@ function App() {
       }
     }
   }, [fileExplorerSelectedIndex, fileExplorerOpen, fileExplorerItems]);
-
-  // Focus helper for AddGameModal
-  useEffect(() => {
-    if (!addGameModalOpen) return;
-
-    let elementToFocus: HTMLElement | null = null;
-
-    if (addGameSelectedIndex === 0) {
-      elementToFocus = document.getElementById("add-game-search-input");
-    } else if (addGameSelectedIndex === 1) {
-      elementToFocus = document.getElementById("add-game-manual-browse-btn");
-    } else if (addGameSelectedIndex === 2) {
-      elementToFocus = document.getElementById(`detected-app-item-${detectedSelectedIndex}`);
-    } else if (addGameSelectedIndex === 3) {
-      elementToFocus = document.getElementById("add-game-custom-name");
-    } else if (addGameSelectedIndex === 4) {
-      elementToFocus = document.getElementById("add-game-custom-exe-btn");
-    } else if (addGameSelectedIndex === 5) {
-      elementToFocus = document.getElementById("add-game-custom-img");
-    } else if (addGameSelectedIndex === 6) {
-      elementToFocus = document.getElementById("add-game-custom-img-btn");
-    } else if (addGameSelectedIndex === 7) {
-      elementToFocus = document.getElementById("add-game-submit-btn");
-    } else if (addGameSelectedIndex === 8) {
-      elementToFocus = document.getElementById("add-game-cancel-btn");
-    }
-
-    if (elementToFocus) {
-      elementToFocus.focus();
-    }
-  }, [addGameModalOpen, addGameSelectedIndex, detectedSelectedIndex, installedApps, searchQuery]);
-
-  // Focus helper for File Explorer
-  useEffect(() => {
-    if (!fileExplorerOpen) return;
-
-    const elementToFocus = document.getElementById(`file-explorer-item-${fileExplorerSelectedIndex}`);
-    if (elementToFocus) {
-      elementToFocus.focus();
-    }
-  }, [fileExplorerOpen, fileExplorerSelectedIndex, fileExplorerItems]);
-
-  // Keydown listener for Keyboard Navigation inside AddGameModal
-  useEffect(() => {
-    const handleAddGameKeys = (e: KeyboardEvent) => {
-      if (!addGameModalOpen || fileExplorerOpen) return;
-      const fApps = installedApps.filter((app) =>
-        app.name.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        if (addGameSelectedIndex === 2) {
-          if (detectedSelectedIndex > 0) {
-            setDetectedSelectedIndex((prev) => prev - 1);
-          } else {
-            setAddGameSelectedIndex(0);
-          }
-        } else {
-          setAddGameSelectedIndex((prev) => {
-            if (prev === 0) return 8;
-            if (prev === 3) return fApps.length > 0 ? 2 : 0;
-            return prev - 1;
-          });
-        }
-      } else if (e.key === "ArrowDown") {
-        e.preventDefault();
-        if (addGameSelectedIndex === 2) {
-          if (detectedSelectedIndex < fApps.length - 1) {
-            setDetectedSelectedIndex((prev) => prev + 1);
-          } else {
-            setAddGameSelectedIndex(3);
-          }
-        } else {
-          setAddGameSelectedIndex((prev) => {
-            if (prev === 8) return 0;
-            if (prev === 0 || prev === 1) return fApps.length > 0 ? 2 : 3;
-            if (prev === 2) return 3;
-            return prev + 1;
-          });
-        }
-      } else if (e.key === "ArrowLeft") {
-        if (addGameSelectedIndex === 1) {
-          e.preventDefault();
-          setAddGameSelectedIndex(0);
-        } else if (addGameSelectedIndex === 8) {
-          e.preventDefault();
-          setAddGameSelectedIndex(7);
-        }
-      } else if (e.key === "ArrowRight") {
-        if (addGameSelectedIndex === 0) {
-          e.preventDefault();
-          setAddGameSelectedIndex(1);
-        } else if (addGameSelectedIndex === 7) {
-          e.preventDefault();
-          setAddGameSelectedIndex(8);
-        }
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        setAddGameModalOpen(false);
-      }
-    };
-    window.addEventListener("keydown", handleAddGameKeys);
-    return () => window.removeEventListener("keydown", handleAddGameKeys);
-  }, [
-    addGameModalOpen,
-    addGameSelectedIndex,
-    detectedSelectedIndex,
-    installedApps,
-    searchQuery,
-    fileExplorerOpen,
-  ]);
 
   // Keydown listener for Keyboard Navigation inside In-App File Explorer
   useEffect(() => {
@@ -1321,11 +1113,6 @@ function App() {
         fileExplorerOpen: isFileExplorerOpen,
         fileExplorerSelectedIndex: fileExplorerIdx,
         fileExplorerItems: fileExplorerItms,
-        addGameModalOpen: isAddGameOpen,
-        addGameSelectedIndex: addGameIdx,
-        detectedSelectedIndex: detectedIdx,
-        installedApps: instApps,
-        searchQuery: sQuery,
         currentTheme: theme,
         activeDetailGame: detailGame,
         detailSelectedIndex: detailIdx,
@@ -1393,60 +1180,6 @@ function App() {
           if (selectedItem) handleFileExplorerSelectRef.current?.(selectedItem);
         } else if (actions.b) {
           setFileExplorerOpen(false);
-        }
-        return true;
-      }
-
-      if (isAddGameOpen) {
-        const fApps = instApps.filter((app: any) =>
-          app.name.toLowerCase().includes(sQuery.toLowerCase())
-        );
-        if (actions.b) {
-          setAddGameModalOpen(false);
-        } else if (addGameIdx === 2) {
-          if (actions.up) {
-            if (detectedIdx > 0) setDetectedSelectedIndex(detectedIdx - 1);
-            else setAddGameSelectedIndex(0);
-          } else if (actions.down) {
-            if (detectedIdx < fApps.length - 1) setDetectedSelectedIndex(detectedIdx + 1);
-            else setAddGameSelectedIndex(3);
-          } else if (actions.a) {
-            const app = fApps[detectedIdx];
-            if (app) {
-              setCustomName(app.name);
-              setCustomExe(app.path);
-              setAddGameSelectedIndex(7);
-            }
-          }
-        } else {
-          if (actions.up) {
-            setAddGameSelectedIndex((prev) => {
-              if (prev === 0) return 8;
-              if (prev === 3) return fApps.length > 0 ? 2 : 0;
-              return prev - 1;
-            });
-          } else if (actions.down) {
-            setAddGameSelectedIndex((prev) => {
-              if (prev === 8) return 0;
-              if (prev === 0 || prev === 1) return fApps.length > 0 ? 2 : 3;
-              if (prev === 2) return 3;
-              return prev + 1;
-            });
-          } else if (actions.left) {
-            if (addGameIdx === 1) setAddGameSelectedIndex(0);
-            else if (addGameIdx === 8) setAddGameSelectedIndex(7);
-          } else if (actions.right) {
-            if (addGameIdx === 0) setAddGameSelectedIndex(1);
-            else if (addGameIdx === 7) setAddGameSelectedIndex(8);
-          } else if (actions.a) {
-            const active = document.activeElement;
-            if (
-              active instanceof HTMLElement &&
-              !(active instanceof HTMLInputElement && active.type === "text")
-            ) {
-              active.click();
-            }
-          }
         }
         return true;
       }
@@ -1534,7 +1267,7 @@ function App() {
           } else if (actions.y) {
             handleOpenYouTube();
           } else if (actions.x) {
-            setAddGameModalOpen(true);
+            openAddGameModal();
           }
         } else if (focusArea === "header") {
           if (actions.left) {
@@ -1754,28 +1487,6 @@ function App() {
             onOpenImagePicker={handleOpenImagePicker}
           />
 
-          <AddGameModal
-            isOpen={addGameModalOpen}
-            availableDrives={availableDrives}
-            selectedDrives={selectedDrives}
-            searchQuery={searchQuery}
-            installedApps={installedApps}
-            loadingApps={loadingApps}
-            addGameSelectedIndex={addGameSelectedIndex}
-            detectedSelectedIndex={detectedSelectedIndex}
-            customName={customName}
-            customExe={customExe}
-            detectedListRef={detectedListRef}
-            onClose={() => setAddGameModalOpen(false)}
-            setSelectedDrives={setSelectedDrives}
-            setSearchQuery={setSearchQuery}
-            setDetectedSelectedIndex={setDetectedSelectedIndex}
-            setAddGameSelectedIndex={setAddGameSelectedIndex}
-            setCustomName={setCustomName}
-            setCustomExe={setCustomExe}
-            onPickExe={handlePickExe}
-            onSubmit={handleAddCustomGameSubmit}
-          />
 
           <FileExplorerModal
             fileExplorerOpen={fileExplorerOpen}

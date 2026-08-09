@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+﻿use std::path::{Path, PathBuf};
 use std::time::{Instant, Duration};
 use tauri::Manager;
 use tokio::sync::Mutex;
@@ -659,6 +659,98 @@ fn list_dir_contents(path: &str, allowed_extensions: Vec<String>) -> Result<Vec<
 }
 
 #[tauri::command]
+fn search_files_recursive(
+    root_path: &str,
+    query: &str,
+    allowed_extensions: Vec<String>,
+) -> Result<Vec<FileItem>, String> {
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let query_lower = query.to_lowercase();
+    let mut results = Vec::new();
+
+    fn walk(
+        dir: &Path,
+        current_depth: usize,
+        max_depth: usize,
+        query: &str,
+        allowed_exts: &[String],
+        results: &mut Vec<FileItem>,
+    ) {
+        if current_depth > max_depth || results.len() >= 100 {
+            return;
+        }
+
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+
+        for entry in entries.flatten() {
+            if results.len() >= 100 {
+                break;
+            }
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+
+            if name.starts_with('.') || name.starts_with('$') || name == "System Volume Information" {
+                continue;
+            }
+
+            if let Ok(ft) = entry.file_type() {
+                if ft.is_dir() {
+                    if name.to_lowercase().contains(query) {
+                        results.push(FileItem {
+                            name: name.clone(),
+                            path: path.to_string_lossy().into_owned(),
+                            is_dir: true,
+                        });
+                    }
+                    walk(&path, current_depth + 1, max_depth, query, allowed_exts, results);
+                } else {
+                    let ext = path.extension()
+                        .and_then(|e| e.to_str())
+                        .map(|s| s.to_lowercase())
+                        .unwrap_or_default();
+
+                    let ext_matches = allowed_exts.is_empty() || allowed_exts.contains(&ext);
+                    if ext_matches && name.to_lowercase().contains(query) {
+                        results.push(FileItem {
+                            name,
+                            path: path.to_string_lossy().into_owned(),
+                            is_dir: false,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    let search_root = if root_path.is_empty() {
+        #[cfg(target_os = "windows")]
+        { PathBuf::from("C:\\") }
+        #[cfg(not(target_os = "windows"))]
+        { PathBuf::from("/") }
+    } else {
+        PathBuf::from(root_path)
+    };
+
+    walk(&search_root, 0, 5, &query_lower, &allowed_extensions, &mut results);
+
+    results.sort_by(|a, b| {
+        if a.is_dir != b.is_dir {
+            b.is_dir.cmp(&a.is_dir)
+        } else {
+            a.name.to_lowercase().cmp(&b.name.to_lowercase())
+        }
+    });
+
+    Ok(results)
+}
+
+#[tauri::command]
 fn get_parent_path(path: &str) -> Result<String, String> {
     let p = Path::new(path);
     match p.parent() {
@@ -1204,6 +1296,7 @@ pub fn run() {
             get_installed_apps,
             get_drives,
             list_dir_contents,
+            search_files_recursive,
             get_parent_path,
             // ── IGDB metadata ─────────────────────────────────────────
             get_game_image_url,
