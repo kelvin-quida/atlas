@@ -91,7 +91,29 @@ pub async fn db_get_game_media(
         .map_err(|e| format!("DB query error: {}", e))?;
 
     if !existing.is_empty() {
-        return Ok(existing.into_iter().map(to_dto).collect());
+        let mut seen = std::collections::HashSet::new();
+        let mut unique_media = Vec::new();
+        let mut duplicate_ids = Vec::new();
+
+        for item in existing {
+            if seen.insert(item.url.clone()) {
+                unique_media.push(to_dto(item));
+            } else {
+                duplicate_ids.push(item.id);
+            }
+        }
+
+        if !duplicate_ids.is_empty() {
+            let db_clone = db.clone();
+            tokio::spawn(async move {
+                let _ = game_media::Entity::delete_many()
+                    .filter(game_media::Column::Id.is_in(duplicate_ids))
+                    .exec(&db_clone)
+                    .await;
+            });
+        }
+
+        return Ok(unique_media);
     }
 
     // 2. Fetch game from DB to check for igdb_id
@@ -141,6 +163,7 @@ pub async fn db_get_game_media(
         .map_err(|e| format!("Failed to parse IGDB response: {}", e))?;
 
     let mut media_list = Vec::new();
+    let mut seen_urls = std::collections::HashSet::new();
     let now = Utc::now().to_rfc3339();
 
     // Prefer candidate with videos, or default to the first match
@@ -158,7 +181,11 @@ pub async fn db_get_game_media(
                 if let Some(ref vid_id) = video.video_id {
                     let yt_url = format!("https://www.youtube.com/watch?v={}", vid_id);
                     let yt_thumb = format!("https://img.youtube.com/vi/{}/hqdefault.jpg", vid_id);
-                    
+
+                    if !seen_urls.insert(yt_url.clone()) {
+                        continue;
+                    }
+
                     let active = game_media::ActiveModel {
                         id: sea_orm::ActiveValue::NotSet,
                         game_id: Set(game_id.clone()),
@@ -202,6 +229,10 @@ pub async fn db_get_game_media(
                 };
 
                 if let Some((big_url, thumb_url)) = url_opt {
+                    if !seen_urls.insert(big_url.clone()) {
+                        continue;
+                    }
+
                     let active = game_media::ActiveModel {
                         id: sea_orm::ActiveValue::NotSet,
                         game_id: Set(game_id.clone()),

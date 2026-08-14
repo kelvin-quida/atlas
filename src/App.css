@@ -4108,6 +4108,18 @@ input:checked+.slider:before {
   margin-bottom: 1.5rem;
   width: 100%;
   box-sizing: border-box;
+  transition: all 0.25s ease;
+}
+
+.media-gallery-card.gallery-focused {
+  border-color: rgba(56, 189, 248, 0.85) !important;
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.4), inset 0 0 12px rgba(56, 189, 248, 0.15);
+}
+
+.media-gallery-card.gallery-focused .thumbnail-item.active {
+  outline: 2.5px solid #38bdf8;
+  outline-offset: 2px;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.6);
 }
 
 .gallery-hero-wrapper {

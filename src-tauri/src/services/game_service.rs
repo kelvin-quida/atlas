@@ -36,17 +36,101 @@ fn resolve_cover_url(cover_url: Option<String>, app_data_dir: &std::path::Path) 
     }
 }
 
-/// Creates a new game record in the database.
-/// Returns the created game as a DTO.
+/// Deduplicates game records in SQLite database (removes entries with identical steam_app_id or name).
+pub async fn deduplicate_games(db: &DatabaseConnection) -> Result<(), String> {
+    let all_games = game::Entity::find()
+        .all(db)
+        .await
+        .map_err(|e| format!("DB query error: {}", e))?;
+
+    let mut seen_steam_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut ids_to_delete: Vec<String> = Vec::new();
+
+    for g in all_games {
+        let name_key = g.name.trim().to_lowercase();
+        let mut is_dupe = false;
+
+        if let Some(ref steam_id) = g.steam_app_id {
+            if !steam_id.trim().is_empty() {
+                if seen_steam_ids.contains(steam_id) {
+                    is_dupe = true;
+                } else {
+                    seen_steam_ids.insert(steam_id.clone());
+                }
+            }
+        }
+
+        if !is_dupe {
+            if seen_names.contains(&name_key) {
+                is_dupe = true;
+            } else {
+                seen_names.insert(name_key);
+            }
+        }
+
+        if is_dupe {
+            ids_to_delete.push(g.id);
+        }
+    }
+
+    for id in ids_to_delete {
+        let _ = delete_game(db, &id).await;
+    }
+
+    Ok(())
+}
+
+/// Creates a new game record in the database, or updates if already exists.
+/// Returns the created or updated game as a DTO.
 pub async fn create_game(
     db: &DatabaseConnection,
     input: CreateGameInput,
     app_data_dir: &std::path::Path,
 ) -> Result<GameDto, String> {
-    let id = Uuid::new_v4().to_string();
-    let now = Utc::now().to_rfc3339();
     let platform = input.platform.unwrap_or_else(|| "manual".to_string());
     let sort_name = normalize_sort_name(&input.name);
+    let name_key = input.name.trim().to_lowercase();
+
+    // Check if game already exists by steam_app_id or name to prevent duplicates
+    let existing = if let Some(ref steam_id) = input.steam_app_id {
+        if !steam_id.trim().is_empty() {
+            game::Entity::find()
+                .filter(game::Column::SteamAppId.eq(steam_id))
+                .one(db)
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let existing = match existing {
+        Some(g) => Some(g),
+        None => {
+            let all = game::Entity::find().all(db).await.unwrap_or_default();
+            all.into_iter().find(|g| g.name.trim().to_lowercase() == name_key)
+        }
+    };
+
+    if let Some(existing_game) = existing {
+        return update_game(
+            db,
+            &existing_game.id,
+            Some(input.name),
+            input.exe_path,
+            input.cover_url,
+            None,
+            app_data_dir,
+        )
+        .await;
+    }
+
+    let id = Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
 
     let active = GameActive {
         id: Set(id.clone()),
@@ -161,6 +245,9 @@ pub async fn list_games(
     db: &DatabaseConnection,
     app_data_dir: &std::path::Path,
 ) -> Result<Vec<GameDto>, String> {
+    // Automatically purge duplicates if any exist in the database
+    let _ = deduplicate_games(db).await;
+
     let games = game::Entity::find()
         .find_with_related(image_asset::Entity)
         .all(db)

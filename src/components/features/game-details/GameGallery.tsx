@@ -7,6 +7,10 @@ interface GameGalleryProps {
   media: GameMedia[];
   loading: boolean;
   error: string | null;
+  isFocused?: boolean;
+  galleryPrevRef?: React.MutableRefObject<(() => void) | null>;
+  galleryNextRef?: React.MutableRefObject<(() => void) | null>;
+  galleryLightboxRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 function getYoutubeId(url: string): string | null {
@@ -16,7 +20,15 @@ function getYoutubeId(url: string): string | null {
   return match && match[2].length === 11 ? match[2] : null;
 }
 
-export const GameGallery: React.FC<GameGalleryProps> = ({ media, loading, error }) => {
+export const GameGallery: React.FC<GameGalleryProps> = ({
+  media,
+  loading,
+  error,
+  isFocused,
+  galleryPrevRef,
+  galleryNextRef,
+  galleryLightboxRef,
+}) => {
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [lightboxOpen, setLightboxOpen] = useState<boolean>(false);
   const thumbnailContainerRef = useRef<HTMLDivElement | null>(null);
@@ -54,6 +66,32 @@ export const GameGallery: React.FC<GameGalleryProps> = ({ media, loading, error 
     if (media.length === 0) return;
     setSelectedIndex((prev) => (prev < media.length - 1 ? prev + 1 : 0));
   }, [media.length]);
+
+  // Bind refs for external controls (e.g. Gamepad loop in App.tsx)
+  useEffect(() => {
+    if (galleryPrevRef) galleryPrevRef.current = handlePrev;
+    if (galleryNextRef) galleryNextRef.current = handleNext;
+    if (galleryLightboxRef) galleryLightboxRef.current = () => setLightboxOpen(true);
+  }, [galleryPrevRef, galleryNextRef, galleryLightboxRef, handlePrev, handleNext]);
+
+  // Keyboard navigation when gallery is focused
+  useEffect(() => {
+    if (!isFocused || lightboxOpen) return;
+    const handleGalleryKeys = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        handlePrev();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        handleNext();
+      } else if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        setLightboxOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handleGalleryKeys);
+    return () => window.removeEventListener("keydown", handleGalleryKeys);
+  }, [isFocused, lightboxOpen, handlePrev, handleNext]);
 
   // Handle global keyboard listeners for navigation and closing lightbox
   useEffect(() => {
@@ -188,7 +226,7 @@ export const GameGallery: React.FC<GameGalleryProps> = ({ media, loading, error 
   };
 
   return (
-    <div className="atlas-card media-gallery-card atlas-game-gallery">
+    <div className={`atlas-card media-gallery-card atlas-game-gallery ${isFocused ? "gallery-focused" : ""}`}>
       {/* Gallery Main Hero Section */}
       <div className="gallery-hero-wrapper">
         <button

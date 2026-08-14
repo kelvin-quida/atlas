@@ -22,6 +22,17 @@ interface UseGameMediaResult {
   error: string | null;
 }
 
+function deduplicateMedia(items: GameMedia[]): GameMedia[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (!item.url || seen.has(item.url)) {
+      return false;
+    }
+    seen.add(item.url);
+    return true;
+  });
+}
+
 export function useGameMedia(gameId: string | undefined, gameName: string | undefined): UseGameMediaResult {
   const [media, setMedia] = useState<GameMedia[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -42,7 +53,7 @@ export function useGameMedia(gameId: string | undefined, gameName: string | unde
     invoke<GameMedia[]>("db_get_game_media", { gameId, gameName })
       .then((res) => {
         if (isMounted) {
-          setMedia(res || []);
+          setMedia(deduplicateMedia(res || []));
           setLoading(false);
         }
       })

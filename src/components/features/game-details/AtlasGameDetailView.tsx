@@ -10,8 +10,10 @@ interface AtlasGameDetailViewProps {
   setDetailSelectedIndex: (index: number) => void;
   onClose?: () => void;
   onTryLaunchGame: (game: SteamGame) => void;
-  onOpenOptionsMenu: (game: SteamGame) => void;
   onOpenEditMedia: (game: SteamGame) => void;
+  galleryPrevRef?: React.MutableRefObject<(() => void) | null>;
+  galleryNextRef?: React.MutableRefObject<(() => void) | null>;
+  galleryLightboxRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
@@ -20,8 +22,10 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
   playtimes,
   setDetailSelectedIndex,
   onTryLaunchGame,
-  onOpenOptionsMenu,
   onOpenEditMedia,
+  galleryPrevRef,
+  galleryNextRef,
+  galleryLightboxRef,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const playBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -74,28 +78,7 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
               onClick={() => onOpenEditMedia(activeDetailGame)}
               onMouseEnter={() => setDetailSelectedIndex(1)}
             >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-              >
-                <path d="M12 20h9" />
-                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-              </svg>
-              <span>Editar Jogo</span>
-            </button>
-
-            <button
-              tabIndex={0}
-              className={`atlas-detail-options-btn focusable ${detailSelectedIndex === 2 ? "focused" : ""
-                }`}
-              onClick={() => onOpenOptionsMenu(activeDetailGame)}
-              onMouseEnter={() => setDetailSelectedIndex(2)}
-            >
-              <svg
+             <svg
                 width="20"
                 height="20"
                 viewBox="0 0 24 24"
@@ -149,7 +132,15 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
       <div className="atlas-detail-content-grid">
         {/* Left Column: Media Gallery & Installation Info */}
       <div className="atlas-detail-main-col">
-        <GameGallery media={media} loading={loading} error={error} />
+        <GameGallery
+          media={media}
+          loading={loading}
+          error={error}
+          isFocused={detailSelectedIndex === 2}
+          galleryPrevRef={galleryPrevRef}
+          galleryNextRef={galleryNextRef}
+          galleryLightboxRef={galleryLightboxRef}
+        />
 
         {/* Installation & Execution Card */}
         <div className="atlas-card install-info-card">

@@ -35,7 +35,6 @@ import { EmptyLibrary } from "./components/features/library/EmptyLibrary";
 import { LibraryModal } from "./components/features/library/LibraryModal";
 import { AtlasGameDetailView } from "./components/features/game-details/AtlasGameDetailView";
 import { SettingsModal } from "./components/features/settings/SettingsModal";
-import { OptionsMenuModal } from "./components/features/modals/OptionsMenuModal";
 import { EditGameModal } from "./components/features/modals/EditGameModal";
 import { FileExplorerModal } from "./components/features/modals/FileExplorerModal";
 import { ImagePickerModal } from "./components/features/modals/ImagePickerModal";
@@ -96,10 +95,14 @@ function App() {
   // Playtime Tracking States
   const [playtimes, setPlaytimes] = useState<Record<string, PlaytimeStats>>({});
   const activeSessionIdRef = useRef<number | null>(null);
+  const activeLaunchingGameRef = useRef<SteamGame | null>(null);
+
+  // Gallery Navigation Refs
+  const galleryPrevRef = useRef<(() => void) | null>(null);
+  const galleryNextRef = useRef<(() => void) | null>(null);
+  const galleryLightboxRef = useRef<(() => void) | null>(null);
 
   // States for options menu and editing
-  const [optionsMenuGame, setOptionsMenuGame] = useState<SteamGame | null>(null);
-  const [optionsMenuSelectedIndex, setOptionsMenuSelectedIndex] = useState(0);
   const [editingGame, setEditingGame] = useState<SteamGame | null>(null);
   const [editName, setEditName] = useState("");
   const [editExe, setEditExe] = useState("");
@@ -181,7 +184,6 @@ function App() {
         settingsOpen ||
         launchingGame ||
         loading ||
-        optionsMenuGame ||
         editingGame ||
         fileExplorerOpen
       )
@@ -189,13 +191,35 @@ function App() {
 
       if (e.key === "Escape") {
         e.preventDefault();
-        setActiveDetailGame(null);
+        if (detailSelectedIndex === 2) {
+          setDetailSelectedIndex(0);
+        } else {
+          setActiveDetailGame(null);
+        }
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (detailSelectedIndex === 2) {
+          setDetailSelectedIndex(0);
+        }
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (detailSelectedIndex < 2) {
+          setDetailSelectedIndex(2);
+        }
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
-        setDetailSelectedIndex((prev) => (prev > 0 ? prev - 1 : 2));
+        if (detailSelectedIndex === 0 || detailSelectedIndex === 1) {
+          setDetailSelectedIndex((prev) => (prev > 0 ? prev - 1 : 1));
+        } else if (detailSelectedIndex === 2) {
+          galleryPrevRef.current?.();
+        }
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
-        setDetailSelectedIndex((prev) => (prev < 2 ? prev + 1 : 0));
+        if (detailSelectedIndex === 0 || detailSelectedIndex === 1) {
+          setDetailSelectedIndex((prev) => (prev < 1 ? prev + 1 : 0));
+        } else if (detailSelectedIndex === 2) {
+          galleryNextRef.current?.();
+        }
       } else if (e.key === "Enter") {
         e.preventDefault();
         if (detailSelectedIndex === 0) {
@@ -208,7 +232,7 @@ function App() {
           setEditTab("media");
           setEditingGame(activeDetailGame);
         } else if (detailSelectedIndex === 2) {
-          setOptionsMenuGame(activeDetailGame);
+          galleryLightboxRef.current?.();
         }
       }
     };
@@ -220,7 +244,6 @@ function App() {
     settingsOpen,
     launchingGame,
     loading,
-    optionsMenuGame,
     editingGame,
     fileExplorerOpen,
   ]);
@@ -236,8 +259,6 @@ function App() {
     youtubeActive,
     twitchActive,
     backloggdActive,
-    optionsMenuGame,
-    optionsMenuSelectedIndex,
     editingGame,
     customGames,
     focusArea,
@@ -263,8 +284,6 @@ function App() {
       youtubeActive,
       twitchActive,
       backloggdActive,
-      optionsMenuGame,
-      optionsMenuSelectedIndex,
       editingGame,
       customGames,
       focusArea,
@@ -287,8 +306,6 @@ function App() {
     youtubeActive,
     twitchActive,
     backloggdActive,
-    optionsMenuGame,
-    optionsMenuSelectedIndex,
     editingGame,
     customGames,
     focusArea,
@@ -427,6 +444,13 @@ function App() {
     }
   }, [selectedGameIndex, games]);
 
+  // Load playtime when detail page opens
+  useEffect(() => {
+    if (activeDetailGame) {
+      loadPlaytime(activeDetailGame.appid);
+    }
+  }, [activeDetailGame]);
+
   // ── Steam Account Handlers ──────────────────────────────────────────────────
   const loadSteamUser = async () => {
     try {
@@ -497,7 +521,9 @@ function App() {
     const handleFocus = async () => {
       if (activeSessionIdRef.current !== null) {
         const sid = activeSessionIdRef.current;
+        const targetGame = activeLaunchingGameRef.current || activeDetailGame || games[selectedGameIndex];
         activeSessionIdRef.current = null;
+        activeLaunchingGameRef.current = null;
         try {
           const res = await invoke<{ duration_seconds: number; formatted: string }>(
             "end_play_session",
@@ -505,9 +531,29 @@ function App() {
           );
           console.log(`[Playtime] Ended session ${sid}. Played for ${res.formatted}`);
 
-          const game = games[selectedGameIndex];
-          if (game) {
-            loadPlaytime(game.appid);
+          if (targetGame) {
+            const nowIso = new Date().toISOString();
+            loadPlaytime(targetGame.appid);
+
+            if (targetGame.isCustom) {
+              setCustomGames((prev) =>
+                prev.map((g) =>
+                  g.appid === targetGame.appid ? { ...g, last_played: nowIso } : g
+                )
+              );
+            } else {
+              setSteamGames((prev) =>
+                prev.map((g) =>
+                  g.appid === targetGame.appid ? { ...g, last_played: nowIso } : g
+                )
+              );
+            }
+
+            setActiveDetailGame((prev) =>
+              prev && prev.appid === targetGame.appid
+                ? { ...prev, last_played: nowIso }
+                : prev
+            );
           }
         } catch (e) {
           console.error("Failed to end play session in DB:", e);
@@ -519,13 +565,27 @@ function App() {
     return () => {
       window.removeEventListener("focus", handleFocus);
     };
-  }, [games, selectedGameIndex]);
+  }, [games, selectedGameIndex, activeDetailGame]);
 
-  // Merge steamGames and customGames when either changes
+  // Merge steamGames and customGames when either changes, deduplicating by appid and name
   useEffect(() => {
     const merged = [...steamGames, ...customGames];
-    merged.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-    setGames(merged);
+    const uniqueGames: SteamGame[] = [];
+    const seenAppIds = new Set<string>();
+    const seenNames = new Set<string>();
+
+    for (const g of merged) {
+      const nameKey = g.name.trim().toLowerCase();
+      if (seenAppIds.has(g.appid) || seenNames.has(nameKey)) {
+        continue;
+      }
+      seenAppIds.add(g.appid);
+      seenNames.add(nameKey);
+      uniqueGames.push(g);
+    }
+
+    uniqueGames.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    setGames(uniqueGames);
   }, [steamGames, customGames]);
 
   // Clamp selectedGameIndex to valid bounds in carouselGames
@@ -550,13 +610,9 @@ function App() {
             });
 
             if (game.isCustom) {
-              setCustomGames((prev) => {
-                const next = prev.map((g) =>
-                  g.appid === game.appid ? { ...g, image_url: newUrl } : g
-                );
-                localStorage.setItem("atlas_custom_games", JSON.stringify(next));
-                return next;
-              });
+              setCustomGames((prev) =>
+                prev.map((g) => (g.appid === game.appid ? { ...g, image_url: newUrl } : g))
+              );
             } else {
               setSteamGames((prev) =>
                 prev.map((g) => (g.appid === game.appid ? { ...g, image_url: newUrl } : g))
@@ -669,6 +725,7 @@ function App() {
     }
 
     setLaunchingGame(game);
+    activeLaunchingGameRef.current = game;
     try {
       if (!isSimulated) {
         try {
@@ -716,34 +773,8 @@ function App() {
       setIsLibraryOpen(true);
       return;
     }
-    setOptionsMenuSelectedIndex(0);
-    setOptionsMenuGame(game);
+    handleLaunchGame(game);
   };
-
-  const triggerOption = (option: string, game: SteamGame) => {
-    if (option === "play") {
-      setOptionsMenuGame(null);
-      handleLaunchGame(game);
-    } else if (option === "edit") {
-      setEditName(game.name);
-      setEditExe(game.exe_path || "");
-      setEditImg(game.image_url || "");
-      setEditBg(game.bg_url || "");
-      setEditTab("general");
-      setEditingGame(game);
-      setOptionsMenuGame(null);
-    } else if (option === "delete") {
-      if (confirm(`Tem certeza que deseja excluir o atalho para ${game.name}?`)) {
-        handleDeleteCustomGame(game.appid);
-        setOptionsMenuGame(null);
-      }
-    } else if (option === "cancel") {
-      setOptionsMenuGame(null);
-    }
-  };
-
-  const triggerOptionRef = useRef<any>(null);
-  triggerOptionRef.current = triggerOption;
 
   // Custom File Explorer and Add Custom Game Helpers
   const openFileExplorer = (
@@ -1075,7 +1106,7 @@ function App() {
         return;
       }
 
-      if (settingsOpen || launchingGame || loading || optionsMenuGame || editingGame || isLibraryOpen) return;
+      if (settingsOpen || launchingGame || loading || editingGame || isLibraryOpen) return;
 
       if (youtubeActive) {
         if (e.key === "Escape" || e.key === "Backspace") {
@@ -1150,17 +1181,19 @@ function App() {
       if (focusArea === "carousel") {
         if (e.key === "ArrowLeft") {
           e.preventDefault();
-          setSelectedGameIndex((prev) => (prev > 0 ? prev - 1 : games.length - 1));
+          setSelectedGameIndex((prev) => (prev > 0 ? prev - 1 : carouselGames.length - 1));
         } else if (e.key === "ArrowRight") {
-          e.preventDefault();
-          setSelectedGameIndex((prev) => (prev < games.length - 1 ? prev + 1 : 0));
+          e.preventDefault();
+          setSelectedGameIndex((prev) => (prev < carouselGames.length - 1 ? prev + 1 : 0));
         } else if (e.key === "ArrowUp") {
           e.preventDefault();
           setFocusArea("header");
           setHeaderSelectedIndex(0);
         } else if (e.key === "Enter") {
           e.preventDefault();
-          handleTryLaunchGame(games[selectedGameIndex]);
+          if (carouselGames[selectedGameIndex]) {
+            handleTryLaunchGame(carouselGames[selectedGameIndex]);
+          }
         } else if (e.key === "s" || e.key === "S") {
           e.preventDefault();
           setSettingsOpen(true);
@@ -1211,42 +1244,12 @@ function App() {
     youtubeActive,
     twitchActive,
     backloggdActive,
-    optionsMenuGame,
     editingGame,
     focusArea,
     headerSelectedIndex,
   ]);
 
-  // Keyboard navigation for options menu
-  useEffect(() => {
-    const handleOptionsMenuKeys = (e: KeyboardEvent) => {
-      if (!optionsMenuGame || editingGame) return;
 
-      const availableOptions = optionsMenuGame.isCustom
-        ? ["play", "edit", "delete", "cancel"]
-        : ["play", "cancel"];
-
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setOptionsMenuSelectedIndex((prev) =>
-          prev > 0 ? prev - 1 : availableOptions.length - 1
-        );
-      } else if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setOptionsMenuSelectedIndex((prev) =>
-          prev < availableOptions.length - 1 ? prev + 1 : 0
-        );
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        triggerOption(availableOptions[optionsMenuSelectedIndex], optionsMenuGame);
-      } else if (e.key === "Escape" || e.key === "Backspace") {
-        e.preventDefault();
-        setOptionsMenuGame(null);
-      }
-    };
-    window.addEventListener("keydown", handleOptionsMenuKeys);
-    return () => window.removeEventListener("keydown", handleOptionsMenuKeys);
-  }, [optionsMenuGame, optionsMenuSelectedIndex, editingGame]);
 
   // Keyboard navigation for editing custom game modal
   useEffect(() => {
@@ -1294,8 +1297,6 @@ function App() {
         youtubeActive: isYoutubeActive,
         twitchActive: isTwitchActive,
         backloggdActive: isBackloggdActive,
-        optionsMenuGame: isOptionsMenuOpen,
-        optionsMenuSelectedIndex: selectedOptionIdx,
         editingGame: isEditing,
         focusArea,
         headerSelectedIndex,
@@ -1401,37 +1402,33 @@ function App() {
         return true;
       }
 
-      if (isOptionsMenuOpen) {
-        const availableOptions = isOptionsMenuOpen.isCustom
-          ? ["play", "edit", "delete", "cancel"]
-          : ["play", "cancel"];
-
-        if (actions.up) {
-          setOptionsMenuSelectedIndex((prev) =>
-            prev > 0 ? prev - 1 : availableOptions.length - 1
-          );
-        } else if (actions.down) {
-          setOptionsMenuSelectedIndex((prev) =>
-            prev < availableOptions.length - 1 ? prev + 1 : 0
-          );
-        } else if (actions.a) {
-          triggerOptionRef.current?.(
-            availableOptions[selectedOptionIdx],
-            isOptionsMenuOpen
-          );
-        } else if (actions.b) {
-          setOptionsMenuGame(null);
-        }
-        return true;
-      }
-
       if (detailGame && theme === "atlas") {
         if (actions.b) {
-          setActiveDetailGame(null);
+          if (detailIdx === 2) {
+            setDetailSelectedIndex(0);
+          } else {
+            setActiveDetailGame(null);
+          }
+        } else if (actions.up) {
+          if (detailIdx === 2) {
+            setDetailSelectedIndex(0);
+          }
+        } else if (actions.down) {
+          if (detailIdx < 2) {
+            setDetailSelectedIndex(2);
+          }
         } else if (actions.left) {
-          setDetailSelectedIndex((prev) => (prev > 0 ? prev - 1 : 2));
+          if (detailIdx === 0 || detailIdx === 1) {
+            setDetailSelectedIndex((prev) => (prev > 0 ? prev - 1 : 1));
+          } else if (detailIdx === 2) {
+            galleryPrevRef.current?.();
+          }
         } else if (actions.right) {
-          setDetailSelectedIndex((prev) => (prev < 2 ? prev + 1 : 0));
+          if (detailIdx === 0 || detailIdx === 1) {
+            setDetailSelectedIndex((prev) => (prev < 1 ? prev + 1 : 0));
+          } else if (detailIdx === 2) {
+            galleryNextRef.current?.();
+          }
         } else if (actions.a || actions.start) {
           if (detailIdx === 0) {
             handleTryLaunchGame(detailGame);
@@ -1443,10 +1440,8 @@ function App() {
             setEditTab("media");
             setEditingGame(detailGame);
           } else if (detailIdx === 2) {
-            setOptionsMenuGame(detailGame);
+            galleryLightboxRef.current?.();
           }
-        } else if (actions.x || actions.y) {
-          setOptionsMenuGame(detailGame);
         }
         return true;
       }
@@ -1606,7 +1601,6 @@ function App() {
             setDetailSelectedIndex={setDetailSelectedIndex}
             onClose={() => setActiveDetailGame(null)}
             onTryLaunchGame={handleTryLaunchGame}
-            onOpenOptionsMenu={setOptionsMenuGame}
             onOpenEditMedia={(game) => {
               setEditName(game.name);
               setEditExe(game.exe_path || "");
@@ -1615,6 +1609,9 @@ function App() {
               setEditTab("media");
               setEditingGame(game);
             }}
+            galleryPrevRef={galleryPrevRef}
+            galleryNextRef={galleryNextRef}
+            galleryLightboxRef={galleryLightboxRef}
           />
         ) : games.length === 0 && !loading ? (
           <EmptyLibrary
@@ -1698,16 +1695,6 @@ function App() {
             onOpenAddGameModal={openAddGameModal}
             onDeleteCustomGame={handleDeleteCustomGame}
             onSelectTheme={setCurrentTheme}
-          />
-
-          <OptionsMenuModal
-            optionsMenuGame={optionsMenuGame}
-            optionsMenuSelectedIndex={optionsMenuSelectedIndex}
-            gamepadConnected={gamepadConnected}
-            currentTheme={currentTheme}
-            onClose={() => setOptionsMenuGame(null)}
-            onTriggerOption={triggerOption}
-            setOptionsMenuSelectedIndex={setOptionsMenuSelectedIndex}
           />
 
           <EditGameModal
