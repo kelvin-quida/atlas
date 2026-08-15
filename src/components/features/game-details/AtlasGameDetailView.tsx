@@ -101,7 +101,7 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
             <div className="metric-info">
               <span className="metric-label">Tempo Jogado</span>
               <span className="metric-value">
-                {playtimes[activeDetailGame.appid]?.formatted || "0 minutos"}
+                {playtimes[activeDetailGame.appid]?.formatted || "Não jogado"}
               </span>
             </div>
           </div>

@@ -105,7 +105,7 @@ export function getGradientBg(name: string): string {
 // Generate game-specific widgets for PS5 theme (updated with real playtime stats)
 export function getGameWidgets(game: SteamGame, playtimes: Record<string, PlaytimeStats>) {
   const name = game.name;
-  const playtimeFormatted = playtimes[game.appid]?.formatted || "< 1m";
+  const playtimeFormatted = playtimes[game.appid]?.formatted || "Não jogado";
 
   if (name.includes("Baldur's Gate")) {
     return [

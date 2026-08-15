@@ -40,12 +40,6 @@ export const GameInfoPanel: React.FC<GameInfoPanelProps> = ({
                 {activeGame.isCustom ? "Customizado" : "Steam"}
               </span>
             </span>
-            <span>•</span>
-            <span>
-              {activeGame.isCustom
-                ? "Atalho Local Executável"
-                : `AppID: ${activeGame.appid}`}
-            </span>
           </div>
           <div className="ps5-hero-actions">
             <button
@@ -97,15 +91,9 @@ export const GameInfoPanel: React.FC<GameInfoPanelProps> = ({
         </span>
         <span>•</span>
         <span>
-          {activeGame.isCustom
-            ? "Atalho Local Executável"
-            : `AppID: ${activeGame.appid}`}
-        </span>
-        <span>•</span>
-        <span>
           Tempo Jogado:{" "}
           <span className="meta-pill">
-            {playtimes[activeGame.appid]?.formatted || "< 1m"}
+            {playtimes[activeGame.appid]?.formatted || "Não jogado"}
           </span>
         </span>
       </div>

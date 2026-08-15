@@ -9,6 +9,7 @@ use std::path::Path;
 use crate::models::{
     game::{self, ActiveModel as GameActive},
     image_asset,
+    play_session,
     settings,
 };
 
@@ -35,8 +36,7 @@ pub struct SteamOwnedGame {
     name: Option<String>,
     #[allow(dead_code)]
     img_icon_url: Option<String>,
-    #[allow(dead_code)]
-    playtime_forever: Option<u64>,
+    pub playtime_forever: Option<u64>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -412,6 +412,7 @@ pub async fn import_library(
             // Download & store cover/background if missing on disk
             upsert_steam_cover(db, &existing_game.id, &app_id_str, app_data_dir).await;
             upsert_steam_background(db, &existing_game.id, &app_id_str, app_data_dir).await;
+            upsert_steam_playtime(db, &existing_game.id, steam_game.playtime_forever).await;
 
             updated += 1;
         } else {
@@ -442,12 +443,54 @@ pub async fn import_library(
             // Download and store cover & background in assets/
             upsert_steam_cover(db, &id, &app_id_str, app_data_dir).await;
             upsert_steam_background(db, &id, &app_id_str, app_data_dir).await;
+            upsert_steam_playtime(db, &id, steam_game.playtime_forever).await;
 
             imported += 1;
         }
     }
 
     Ok(SteamImportResult { imported, updated, total })
+}
+
+/// Helper: upsert imported Steam playtime as a special play_session
+async fn upsert_steam_playtime(db: &DatabaseConnection, game_id: &str, playtime_forever: Option<u64>) {
+    let minutes = match playtime_forever {
+        Some(m) if m > 0 => m,
+        _ => return,
+    };
+    let duration_seconds = (minutes * 60) as i32;
+    println!("[Playtime Import] Game UUID: {}, playtime_forever: {} mins ({} secs)", game_id, minutes, duration_seconds);
+
+    let existing_session = play_session::Entity::find()
+        .filter(play_session::Column::GameId.eq(game_id))
+        .filter(play_session::Column::StartedAt.eq("STEAM_IMPORT"))
+        .one(db)
+        .await;
+
+    match existing_session {
+        Ok(Some(sess)) => {
+            let mut active: play_session::ActiveModel = sess.into();
+            active.duration_seconds = Set(Some(duration_seconds));
+            if let Err(e) = active.update(db).await {
+                eprintln!("Failed to update Steam imported playtime for {}: {}", game_id, e);
+            }
+        }
+        Ok(None) => {
+            let active = play_session::ActiveModel {
+                id: sea_orm::ActiveValue::NotSet,
+                game_id: Set(game_id.to_string()),
+                started_at: Set("STEAM_IMPORT".to_string()),
+                ended_at: Set(Some("STEAM_IMPORT".to_string())),
+                duration_seconds: Set(Some(duration_seconds)),
+            };
+            if let Err(e) = active.insert(db).await {
+                eprintln!("Failed to insert Steam imported playtime for {}: {}", game_id, e);
+            }
+        }
+        Err(e) => {
+            eprintln!("Error querying play_sessions for {}: {}", game_id, e);
+        }
+    }
 }
 
 /// Helper: download & store Steam cover image with fallback, verifying local file existence

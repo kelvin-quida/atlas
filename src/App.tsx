@@ -414,10 +414,26 @@ function App() {
       setSteamGames(validGames.filter((g) => !g.isCustom));
       setCustomGames(validGames.filter((g) => g.isCustom));
       setIsSimulated(false);
+      loadAllPlaytimes();
     } catch (err) {
       console.warn("[Atlas] Failed to load games from database:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadAllPlaytimes = async () => {
+    try {
+      const statsList = await invoke<{ game_id: string; total_seconds: number; formatted: string }[]>(
+        "get_all_playtimes"
+      );
+      const map: Record<string, PlaytimeStats> = {};
+      statsList.forEach((stat) => {
+        map[stat.game_id] = { total_seconds: stat.total_seconds, formatted: stat.formatted };
+      });
+      setPlaytimes(map);
+    } catch (err) {
+      console.warn("[Playtime] Failed to load all playtimes:", err);
     }
   };
 
@@ -450,6 +466,13 @@ function App() {
       loadPlaytime(activeDetailGame.appid);
     }
   }, [activeDetailGame]);
+
+  // Load all playtimes when library modal opens
+  useEffect(() => {
+    if (isLibraryOpen) {
+      loadAllPlaytimes();
+    }
+  }, [isLibraryOpen]);
 
   // ── Steam Account Handlers ──────────────────────────────────────────────────
   const loadSteamUser = async () => {

@@ -66,3 +66,11 @@ pub async fn get_game_playtime(
         formatted,
     })
 }
+
+/// Returns the total accumulated play time for all games in the library.
+#[tauri::command]
+pub async fn get_all_playtimes(
+    state: State<'_, AppState>,
+) -> Result<Vec<PlaytimeStats>, String> {
+    playtime_service::get_all_playtimes(&state.db).await
+}
