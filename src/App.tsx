@@ -29,8 +29,7 @@ import { ConsoleLayout } from "./components/layouts/ConsoleLayout";
 
 // Feature Components
 import { Header } from "./components/features/header/Header";
-import { GameCarousel } from "./components/features/library/GameCarousel";
-import { GameInfoPanel } from "./components/features/library/GameInfoPanel";
+import { MainView } from "./components/features/library/MainView";
 import { EmptyLibrary } from "./components/features/library/EmptyLibrary";
 import { LibraryModal } from "./components/features/library/LibraryModal";
 import { AtlasGameDetailView } from "./components/features/game-details/AtlasGameDetailView";
@@ -1644,40 +1643,23 @@ function App() {
             }}
           />
         ) : (
-          <>
-            <GameInfoPanel
-              activeGame={activeGame}
-              currentTheme={currentTheme}
-              playtimes={playtimes}
-              onTryLaunchGame={handleTryLaunchGame}
-            />
-
-            {loading ? (
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  height: "300px",
-                }}
-              >
-                <div className="spinner" />
-              </div>
-            ) : (
-              <GameCarousel
-                games={carouselGames}
-                selectedGameIndex={selectedGameIndex}
-                focusArea={focusArea}
-                imageErrors={imageErrors}
-                carouselRef={carouselRef}
-                uninstalledCount={uninstalledGames.length}
-                totalGamesCount={games.length}
-                onSelectGame={handleSelectGameInCarousel}
-                onImageError={handleImageError}
-                onOpenLibrary={() => setIsLibraryOpen(true)}
-              />
-            )}
-          </>
+          <MainView
+            activeGame={activeGame}
+            currentTheme={currentTheme}
+            playtimes={playtimes}
+            loading={loading}
+            carouselGames={carouselGames}
+            selectedGameIndex={selectedGameIndex}
+            focusArea={focusArea}
+            imageErrors={imageErrors}
+            carouselRef={carouselRef}
+            uninstalledCount={uninstalledGames.length}
+            totalGamesCount={games.length}
+            onTryLaunchGame={handleTryLaunchGame}
+            onSelectGame={handleSelectGameInCarousel}
+            onImageError={handleImageError}
+            onOpenLibrary={() => setIsLibraryOpen(true)}
+          />
         )
       }
       launchingOverlay={
