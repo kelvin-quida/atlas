@@ -197,35 +197,47 @@ function App() {
 
       if (e.key === "Escape") {
         e.preventDefault();
-        if (detailSelectedIndex === 2) {
+        if (detailSelectedIndex !== 0) {
           setDetailSelectedIndex(0);
         } else {
           setActiveDetailGame(null);
         }
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        if (detailSelectedIndex === 2) {
-          setDetailSelectedIndex(0);
-        }
+        setDetailSelectedIndex((prev) => {
+          if (prev === 2) return 0;
+          if (prev === 3) return 2;
+          if (prev === 4) return 1;
+          if (prev === 5) return 4;
+          if (prev === 6) return 5;
+          return 0;
+        });
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
-        if (detailSelectedIndex < 2) {
-          setDetailSelectedIndex(2);
-        }
+        setDetailSelectedIndex((prev) => {
+          if (prev === 0 || prev === 1) return 2;
+          if (prev === 2) return 3;
+          if (prev === 4) return 5;
+          if (prev === 5) return 6;
+          return prev;
+        });
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
-        if (detailSelectedIndex === 0 || detailSelectedIndex === 1) {
-          setDetailSelectedIndex((prev) => (prev > 0 ? prev - 1 : 1));
-        } else if (detailSelectedIndex === 2) {
-          galleryPrevRef.current?.();
-        }
+        setDetailSelectedIndex((prev) => {
+          if (prev === 1) return 0;
+          if (prev === 4) return 2;
+          if (prev === 5) return 3;
+          if (prev === 6) return 3;
+          return prev;
+        });
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
-        if (detailSelectedIndex === 0 || detailSelectedIndex === 1) {
-          setDetailSelectedIndex((prev) => (prev < 1 ? prev + 1 : 0));
-        } else if (detailSelectedIndex === 2) {
-          galleryNextRef.current?.();
-        }
+        setDetailSelectedIndex((prev) => {
+          if (prev === 0) return 1;
+          if (prev === 2) return 4;
+          if (prev === 3) return 5;
+          return prev;
+        });
       } else if (e.key === "Enter") {
         e.preventDefault();
         if (detailSelectedIndex === 0) {
@@ -1809,10 +1821,12 @@ function App() {
   return (
     <ConsoleLayout
       ambientBg={
-        <AmbientBackground
-          ambientBgUrl={ambientBgUrl}
-          activeGame={activeGame}
-        />
+        activeDetailGame ? null : (
+          <AmbientBackground
+            ambientBgUrl={ambientBgUrl}
+            activeGame={activeGame}
+          />
+        )
       }
       header={
         <Header
