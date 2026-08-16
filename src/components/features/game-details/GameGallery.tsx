@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useGamepad } from "../../../providers/GamepadContext";
 import { GameMedia } from "./useGameMedia";
 import { Play, X, ChevronLeft, ChevronRight, Maximize2 } from "lucide-react";
@@ -307,54 +308,57 @@ export const GameGallery: React.FC<GameGalleryProps> = ({
       )}
 
       {/* Gallery Lightbox Modal */}
-      {lightboxOpen && activeMedia && (
-        <div className="gallery-lightbox-modal" onClick={() => setLightboxOpen(false)}>
-          <button
-            className="lightbox-close-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              setLightboxOpen(false);
-            }}
-            aria-label="Fechar visualização"
-          >
-            <X size={28} />
-          </button>
-
-          {media.length > 1 && (
+      {lightboxOpen &&
+        activeMedia &&
+        createPortal(
+          <div className="gallery-lightbox-modal" onClick={() => setLightboxOpen(false)}>
             <button
-              className="lightbox-nav-btn prev"
+              className="lightbox-close-btn"
               onClick={(e) => {
                 e.stopPropagation();
-                handlePrev();
+                setLightboxOpen(false);
               }}
-              aria-label="Mídia anterior"
+              aria-label="Fechar visualização"
             >
-              <ChevronLeft size={36} />
+              <X size={28} />
             </button>
-          )}
 
-          <div className="lightbox-content-container" onClick={(e) => e.stopPropagation()}>
-            {renderHeroContent(activeMedia, true)}
-          </div>
+            {media.length > 1 && (
+              <button
+                className="lightbox-nav-btn prev"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePrev();
+                }}
+                aria-label="Mídia anterior"
+              >
+                <ChevronLeft size={36} />
+              </button>
+            )}
 
-          {media.length > 1 && (
-            <button
-              className="lightbox-nav-btn next"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleNext();
-              }}
-              aria-label="Próxima mídia"
-            >
-              <ChevronRight size={36} />
-            </button>
-          )}
+            <div className="lightbox-content-container" onClick={(e) => e.stopPropagation()}>
+              {renderHeroContent(activeMedia, true)}
+            </div>
 
-          <div className="lightbox-indicator">
-            {selectedIndex + 1} / {media.length}
-          </div>
-        </div>
-      )}
+            {media.length > 1 && (
+              <button
+                className="lightbox-nav-btn next"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleNext();
+                }}
+                aria-label="Próxima mídia"
+              >
+                <ChevronRight size={36} />
+              </button>
+            )}
+
+            <div className="lightbox-indicator">
+              {selectedIndex + 1} / {media.length}
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

@@ -1,8 +1,10 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { SteamGame, PlaytimeStats } from "../../../types/game";
 import { useGameMedia } from "./useGameMedia";
 import { GameGallery } from "./GameGallery";
+import { GameNews } from "./GameNews";
+import { useSteamNews } from "./useSteamNews";
 import { useGamepad } from "../../../providers/GamepadContext";
 
 interface AtlasGameDetailViewProps {
@@ -30,15 +32,21 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
   galleryNextRef,
   galleryLightboxRef,
 }) => {
+  const [activeTab, setActiveTab] = useState<"overview" | "news">("overview");
+  const [selectedNewsIndex, setSelectedNewsIndex] = useState<number>(0);
+  const openNewsModalRef = useRef<((item?: SteamNewsItem) => void) | null>(null);
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const playBtnRef = useRef<HTMLButtonElement | null>(null);
   const optionsBtnRef = useRef<HTMLButtonElement | null>(null);
+  const newsCardRef = useRef<HTMLDivElement | null>(null);
   const installCardRef = useRef<HTMLDivElement | null>(null);
   const statsCardRef = useRef<HTMLDivElement | null>(null);
   const hltbCardRef = useRef<HTMLDivElement | null>(null);
   const achievementsCardRef = useRef<HTMLDivElement | null>(null);
 
   const { media, loading, error } = useGameMedia(activeDetailGame.appid, activeDetailGame.name);
+  const { news: steamNews, loading: newsLoading, error: newsError } = useSteamNews(activeDetailGame.appid, activeDetailGame.name);
   const { pushLayer, popLayer, registerLayerHandler } = useGamepad();
 
   // Push gamepad layer for atlas-detail-view
@@ -53,7 +61,24 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
   useEffect(() => {
     const unregister = registerLayerHandler("atlas-detail-view", (actions) => {
       if (actions.b) {
-        if (onClose) onClose();
+        if (detailSelectedIndex !== 0) {
+          setDetailSelectedIndex(0);
+        } else if (onClose) {
+          onClose();
+        }
+        return true;
+      }
+
+      if (actions.lb) {
+        setActiveTab("overview");
+        setDetailSelectedIndex(0);
+        return true;
+      }
+
+      if (actions.rb) {
+        setActiveTab("news");
+        setDetailSelectedIndex(0);
+        setSelectedNewsIndex(0);
         return true;
       }
 
@@ -63,59 +88,86 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
         } else if (detailSelectedIndex === 1) {
           onOpenEditMedia(activeDetailGame);
         } else if (detailSelectedIndex === 2) {
-          galleryLightboxRef?.current?.();
+          if (activeTab === "overview") {
+            galleryLightboxRef?.current?.();
+          } else if (activeTab === "news") {
+            openNewsModalRef.current?.();
+          }
         }
         return true;
       }
 
       if (actions.left) {
-        if (detailSelectedIndex === 2) {
+        if (activeTab === "overview" && detailSelectedIndex === 2) {
           galleryPrevRef?.current?.();
           return true;
         }
         setDetailSelectedIndex((prev) => {
           if (prev === 1) return 0;
-          if (prev === 4) return 2;
-          if (prev === 5) return 3;
-          if (prev === 6) return 3;
+          if (activeTab === "overview") {
+            if (prev === 4) return 2;
+            if (prev === 5) return 3;
+            if (prev === 6) return 3;
+          }
           return prev;
         });
         return true;
       }
 
       if (actions.right) {
-        if (detailSelectedIndex === 2) {
+        if (activeTab === "overview" && detailSelectedIndex === 2) {
           galleryNextRef?.current?.();
           return true;
         }
         setDetailSelectedIndex((prev) => {
           if (prev === 0) return 1;
-          if (prev === 3) return 5;
+          if (activeTab === "overview") {
+            if (prev === 2) return 4;
+            if (prev === 3) return 6;
+          }
           return prev;
         });
         return true;
       }
 
       if (actions.up) {
-        setDetailSelectedIndex((prev) => {
-          if (prev === 2) return 0;
-          if (prev === 3) return 2;
-          if (prev === 4) return 1;
-          if (prev === 5) return 4;
-          if (prev === 6) return 5;
-          return 0;
-        });
+        if (activeTab === "news" && detailSelectedIndex === 2) {
+          if (selectedNewsIndex > 0) {
+            setSelectedNewsIndex((prev) => prev - 1);
+          } else {
+            setDetailSelectedIndex(0);
+          }
+        } else {
+          setDetailSelectedIndex((prev) => {
+            if (prev === 2) return 0;
+            if (activeTab === "overview") {
+              if (prev === 3) return 2;
+              if (prev === 4) return 1;
+              if (prev === 5) return 4;
+              if (prev === 6) return 5;
+            }
+            return 0;
+          });
+        }
         return true;
       }
 
       if (actions.down) {
-        setDetailSelectedIndex((prev) => {
-          if (prev === 0 || prev === 1) return 2;
-          if (prev === 2) return 3;
-          if (prev === 4) return 5;
-          if (prev === 5) return 6;
-          return prev;
-        });
+        if (activeTab === "news" && detailSelectedIndex === 2) {
+          if (selectedNewsIndex < steamNews.length - 1) {
+            setSelectedNewsIndex((prev) => prev + 1);
+          }
+        } else {
+          setDetailSelectedIndex((prev) => {
+            if (prev === 0 || prev === 1) return 2;
+            if (activeTab === "overview") {
+              if (prev === 2) return 3;
+              if (prev === 4) return 5;
+              if (prev === 5) return 6;
+            }
+            return prev;
+          });
+        }
         return true;
       }
 
@@ -124,7 +176,10 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
 
     return () => unregister();
   }, [
+    activeTab,
     detailSelectedIndex,
+    selectedNewsIndex,
+    steamNews,
     activeDetailGame,
     onClose,
     onTryLaunchGame,
@@ -136,6 +191,124 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
     setDetailSelectedIndex,
   ]);
 
+  // Keyboard navigation listener inside AtlasGameDetailView
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.querySelector(".news-modal-overlay")) return;
+
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if (detailSelectedIndex !== 0) {
+          setDetailSelectedIndex(0);
+        } else if (onClose) {
+          onClose();
+        }
+      } else if (e.key === "q" || e.key === "Q") {
+        setActiveTab("overview");
+        setDetailSelectedIndex(0);
+      } else if (e.key === "e" || e.key === "E") {
+        setActiveTab("news");
+        setDetailSelectedIndex(0);
+        setSelectedNewsIndex(0);
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        if (activeTab === "overview" && detailSelectedIndex === 2) {
+          galleryPrevRef?.current?.();
+        } else {
+          setDetailSelectedIndex((prev) => {
+            if (prev === 1) return 0;
+            if (activeTab === "overview") {
+              if (prev === 4) return 2;
+              if (prev === 5) return 3;
+              if (prev === 6) return 3;
+            }
+            return prev;
+          });
+        }
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        if (activeTab === "overview" && detailSelectedIndex === 2) {
+          galleryNextRef?.current?.();
+        } else {
+          setDetailSelectedIndex((prev) => {
+            if (prev === 0) return 1;
+            if (activeTab === "overview") {
+              if (prev === 2) return 4;
+              if (prev === 3) return 6;
+            }
+            return prev;
+          });
+        }
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (activeTab === "news" && detailSelectedIndex === 2) {
+          if (selectedNewsIndex > 0) {
+            setSelectedNewsIndex((prev) => prev - 1);
+          } else {
+            setDetailSelectedIndex(0);
+          }
+        } else {
+          setDetailSelectedIndex((prev) => {
+            if (prev === 2) return 0;
+            if (activeTab === "overview") {
+              if (prev === 3) return 2;
+              if (prev === 4) return 1;
+              if (prev === 5) return 4;
+              if (prev === 6) return 5;
+            }
+            return 0;
+          });
+        }
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (activeTab === "news" && detailSelectedIndex === 2) {
+          if (selectedNewsIndex < steamNews.length - 1) {
+            setSelectedNewsIndex((prev) => prev + 1);
+          }
+        } else {
+          setDetailSelectedIndex((prev) => {
+            if (prev === 0 || prev === 1) return 2;
+            if (activeTab === "overview") {
+              if (prev === 2) return 3;
+              if (prev === 4) return 5;
+              if (prev === 5) return 6;
+            }
+            return prev;
+          });
+        }
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (detailSelectedIndex === 0) {
+          onTryLaunchGame(activeDetailGame);
+        } else if (detailSelectedIndex === 1) {
+          onOpenEditMedia(activeDetailGame);
+        } else if (detailSelectedIndex === 2) {
+          if (activeTab === "overview") {
+            galleryLightboxRef?.current?.();
+          } else if (activeTab === "news") {
+            openNewsModalRef.current?.();
+          }
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    activeTab,
+    detailSelectedIndex,
+    selectedNewsIndex,
+    steamNews,
+    activeDetailGame,
+    onClose,
+    onTryLaunchGame,
+    onOpenEditMedia,
+    galleryPrevRef,
+    galleryNextRef,
+    galleryLightboxRef,
+    setDetailSelectedIndex,
+  ]);
+
   // Scroll focused element into view smoothly (scroll smoothly to top when hero banner is focused)
   useEffect(() => {
     if (detailSelectedIndex === 0 || detailSelectedIndex === 1) {
@@ -144,19 +317,23 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
       }
     } else {
       let targetEl: HTMLElement | null = null;
-      if (detailSelectedIndex === 2) {
-        const galleryEl = containerRef.current?.querySelector(".atlas-game-gallery");
-        if (galleryEl) targetEl = galleryEl as HTMLElement;
-      } else if (detailSelectedIndex === 3) targetEl = installCardRef.current;
-      else if (detailSelectedIndex === 4) targetEl = statsCardRef.current;
-      else if (detailSelectedIndex === 5) targetEl = hltbCardRef.current;
-      else if (detailSelectedIndex === 6) targetEl = achievementsCardRef.current;
+      if (activeTab === "overview") {
+        if (detailSelectedIndex === 2) {
+          const galleryEl = containerRef.current?.querySelector(".atlas-game-gallery");
+          if (galleryEl) targetEl = galleryEl as HTMLElement;
+        } else if (detailSelectedIndex === 3) targetEl = installCardRef.current;
+        else if (detailSelectedIndex === 4) targetEl = statsCardRef.current;
+        else if (detailSelectedIndex === 5) targetEl = hltbCardRef.current;
+        else if (detailSelectedIndex === 6) targetEl = achievementsCardRef.current;
+      } else {
+        if (detailSelectedIndex === 2) targetEl = newsCardRef.current;
+      }
 
       if (targetEl) {
         targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }
     }
-  }, [detailSelectedIndex]);
+  }, [detailSelectedIndex, activeTab]);
 
   useEffect(() => {
     if (containerRef.current) {
@@ -268,156 +445,216 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
         </div>
       </div>
 
-      {/* Content Grid (2 Columns) */}
-      <div className="atlas-detail-content-grid hydra-content-grid">
-        {/* Left Column: Media Gallery & Installation Info */}
-        <div className="atlas-detail-main-col">
-          <GameGallery
-            media={media}
-            loading={loading}
-            error={error}
-            isFocused={detailSelectedIndex === 2}
-            galleryPrevRef={galleryPrevRef}
-            galleryNextRef={galleryNextRef}
-            galleryLightboxRef={galleryLightboxRef}
-          />
+      {/* Detail View Navigation Tabs */}
+      <div className="atlas-detail-tabs-nav">
+        <button
+          type="button"
+          className={`detail-tab-item ${activeTab === "overview" ? "active" : ""}`}
+          onClick={() => {
+            setActiveTab("overview");
+            setDetailSelectedIndex(0);
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="3" width="7" height="7" rx="1" />
+            <rect x="14" y="3" width="7" height="7" rx="1" />
+            <rect x="14" y="14" width="7" height="7" rx="1" />
+            <rect x="3" y="14" width="7" height="7" rx="1" />
+          </svg>
+          <span>Visão Geral</span>
+          <span className="tab-key-hint">L1</span>
+        </button>
 
-          {/* Installation & Execution Card */}
-          <div
-            ref={installCardRef}
-            tabIndex={0}
-            className={`atlas-card install-info-card hydra-card focusable ${
-              detailSelectedIndex === 3 ? "focused" : ""
-            }`}
-            onMouseEnter={() => setDetailSelectedIndex(3)}
-          >
-            <div className="atlas-card-header">
-              <h3 className="atlas-card-title">Informações do Sistema</h3>
-            </div>
-            <div className="install-info-list hydra-info-list">
-              <div className="info-row">
-                <span className="info-key">Executável:</span>
-                <span
-                  className="info-val"
-                  title={activeDetailGame.exe_path || "Padrão do Sistema"}
-                >
-                  {activeDetailGame.exe_path || "Padrão do Sistema"}
-                </span>
-              </div>
-              <div className="info-row">
-                <span className="info-key">Plataforma:</span>
-                <span className="info-val">
-                  {activeDetailGame.isCustom ? "Atalho PC" : "Steam"}
-                </span>
-              </div>
-              <div className="info-row">
-                <span className="info-key">ID do Jogo:</span>
-                <span className="info-val">{activeDetailGame.appid}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column: Achievements & Hydra Stats Sidebar */}
-        <div className="atlas-detail-side-col hydra-side-col">
-          {/* Stats Widget (Matching Hydra "Game Stats") */}
-          <div
-            ref={statsCardRef}
-            tabIndex={0}
-            className={`atlas-card sidebar-widget-card hydra-card focusable ${
-              detailSelectedIndex === 4 ? "focused" : ""
-            }`}
-            onMouseEnter={() => setDetailSelectedIndex(4)}
-          >
-            <div className="sidebar-widget-header">
-              <span className="widget-title-row">
-                <span className="atlas-card-title">Estatísticas do Jogo</span>
-              </span>
-            </div>
-            <div className="stats-list hydra-stats-table">
-              <div className="stat-row hydra-stat-row">
-                <span className="stat-name">Avaliação</span>
-                <span className="stat-score hydra-rating-val">★ 5.0</span>
-              </div>
-              <div className="stat-row hydra-stat-row">
-                <span className="stat-name">Downloads</span>
-                <span className="stat-score">700K</span>
-              </div>
-              <div className="stat-row hydra-stat-row">
-                <span className="stat-name">Jogando Agora</span>
-                <span className="stat-score">1.6K</span>
-              </div>
-            </div>
-          </div>
-
-          {/* How Long To Beat Widget (Matching Hydra "How Long to Beat") */}
-          <div
-            ref={hltbCardRef}
-            tabIndex={0}
-            className={`atlas-card sidebar-widget-card hltb-card hydra-card focusable ${
-              detailSelectedIndex === 5 ? "focused" : ""
-            }`}
-            onMouseEnter={() => setDetailSelectedIndex(5)}
-          >
-            <div className="sidebar-widget-header">
-              <span className="widget-title-row">
-                <span className="atlas-card-title">How Long to Beat</span>
-              </span>
-            </div>
-            <div className="hltb-grid hydra-hltb-table">
-              <div className="stat-row hydra-stat-row">
-                <span className="stat-name">História Principal</span>
-                <span className="stat-score">12½h</span>
-              </div>
-              <div className="stat-row hydra-stat-row">
-                <span className="stat-name">Principal + Extras</span>
-                <span className="stat-score">24h</span>
-              </div>
-              <div className="stat-row hydra-stat-row">
-                <span className="stat-name">100% Completo</span>
-                <span className="stat-score">50h</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Achievements Widget */}
-          <div
-            ref={achievementsCardRef}
-            tabIndex={0}
-            className={`atlas-card sidebar-widget-card hydra-card focusable ${
-              detailSelectedIndex === 6 ? "focused" : ""
-            }`}
-            onMouseEnter={() => setDetailSelectedIndex(6)}
-          >
-            <div className="sidebar-widget-header">
-              <span className="widget-title-row">
-                <span className="atlas-card-title">Conquistas</span>
-              </span>
-            </div>
-            <div className="achievements-widget-body">
-              <div className="achievements-lock-container">
-                <svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="lock-icon"
-                >
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
-                <span className="achievements-lock-text">
-                  Conquistas indisponíveis
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
+        <button
+          type="button"
+          className={`detail-tab-item ${activeTab === "news" ? "active" : ""}`}
+          onClick={() => {
+            setActiveTab("news");
+            setDetailSelectedIndex(0);
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2" />
+            <path d="M18 14h-8" />
+            <path d="M15 18h-5" />
+            <path d="M10 6h8v4h-8z" />
+          </svg>
+          <span>Notícias & Patches</span>
+          {steamNews.length > 0 && (
+            <span className="tab-badge">{steamNews.length}</span>
+          )}
+          <span className="tab-key-hint">R1</span>
+        </button>
       </div>
+
+      {/* Tab Content Rendering */}
+      {activeTab === "overview" ? (
+        <div className="atlas-detail-content-grid hydra-content-grid">
+          {/* Left Column: Media Gallery & Installation Info */}
+          <div className="atlas-detail-main-col">
+            <GameGallery
+              media={media}
+              loading={loading}
+              error={error}
+              isFocused={detailSelectedIndex === 2}
+              galleryPrevRef={galleryPrevRef}
+              galleryNextRef={galleryNextRef}
+              galleryLightboxRef={galleryLightboxRef}
+            />
+
+            {/* Installation & Execution Card */}
+            <div
+              ref={installCardRef}
+              tabIndex={0}
+              className={`atlas-card install-info-card hydra-card focusable ${
+                detailSelectedIndex === 3 ? "focused" : ""
+              }`}
+              onMouseEnter={() => setDetailSelectedIndex(3)}
+            >
+              <div className="atlas-card-header">
+                <h3 className="atlas-card-title">Informações do Sistema</h3>
+              </div>
+              <div className="install-info-list hydra-info-list">
+                <div className="info-row">
+                  <span className="info-key">Executável:</span>
+                  <span
+                    className="info-val"
+                    title={activeDetailGame.exe_path || "Padrão do Sistema"}
+                  >
+                    {activeDetailGame.exe_path || "Padrão do Sistema"}
+                  </span>
+                </div>
+                <div className="info-row">
+                  <span className="info-key">Plataforma:</span>
+                  <span className="info-val">
+                    {activeDetailGame.isCustom ? "Atalho PC" : "Steam"}
+                  </span>
+                </div>
+                <div className="info-row">
+                  <span className="info-key">ID do Jogo:</span>
+                  <span className="info-val">{activeDetailGame.appid}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column: Achievements & Hydra Stats Sidebar */}
+          <div className="atlas-detail-side-col hydra-side-col">
+            {/* Stats Widget (Matching Hydra "Game Stats") */}
+            <div
+              ref={statsCardRef}
+              tabIndex={0}
+              className={`atlas-card sidebar-widget-card hydra-card focusable ${
+                detailSelectedIndex === 4 ? "focused" : ""
+              }`}
+              onMouseEnter={() => setDetailSelectedIndex(4)}
+            >
+              <div className="sidebar-widget-header">
+                <span className="widget-title-row">
+                  <span className="atlas-card-title">Estatísticas do Jogo</span>
+                </span>
+              </div>
+              <div className="stats-list hydra-stats-table">
+                <div className="stat-row hydra-stat-row">
+                  <span className="stat-name">Avaliação</span>
+                  <span className="stat-score hydra-rating-val">★ 5.0</span>
+                </div>
+                <div className="stat-row hydra-stat-row">
+                  <span className="stat-name">Downloads</span>
+                  <span className="stat-score">700K</span>
+                </div>
+                <div className="stat-row hydra-stat-row">
+                  <span className="stat-name">Jogando Agora</span>
+                  <span className="stat-score">1.6K</span>
+                </div>
+              </div>
+            </div>
+
+            {/* How Long To Beat Widget (Matching Hydra "How Long to Beat") */}
+            <div
+              ref={hltbCardRef}
+              tabIndex={0}
+              className={`atlas-card sidebar-widget-card hltb-card hydra-card focusable ${
+                detailSelectedIndex === 5 ? "focused" : ""
+              }`}
+              onMouseEnter={() => setDetailSelectedIndex(5)}
+            >
+              <div className="sidebar-widget-header">
+                <span className="widget-title-row">
+                  <span className="atlas-card-title">How Long to Beat</span>
+                </span>
+              </div>
+              <div className="hltb-grid hydra-hltb-table">
+                <div className="stat-row hydra-stat-row">
+                  <span className="stat-name">História Principal</span>
+                  <span className="stat-score">12½h</span>
+                </div>
+                <div className="stat-row hydra-stat-row">
+                  <span className="stat-name">Principal + Extras</span>
+                  <span className="stat-score">24h</span>
+                </div>
+                <div className="stat-row hydra-stat-row">
+                  <span className="stat-name">100% Completo</span>
+                  <span className="stat-score">50h</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Achievements Widget */}
+            <div
+              ref={achievementsCardRef}
+              tabIndex={0}
+              className={`atlas-card sidebar-widget-card hydra-card focusable ${
+                detailSelectedIndex === 6 ? "focused" : ""
+              }`}
+              onMouseEnter={() => setDetailSelectedIndex(6)}
+            >
+              <div className="sidebar-widget-header">
+                <span className="widget-title-row">
+                  <span className="atlas-card-title">Conquistas</span>
+                </span>
+              </div>
+              <div className="achievements-widget-body">
+                <div className="achievements-lock-container">
+                  <svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="lock-icon"
+                  >
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                  <span className="achievements-lock-text">
+                    Conquistas indisponíveis
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div
+          ref={newsCardRef}
+          className="atlas-detail-news-tab-container"
+          onMouseEnter={() => setDetailSelectedIndex(2)}
+        >
+          <GameNews
+            news={steamNews}
+            loading={newsLoading}
+            error={newsError}
+            isFocused={detailSelectedIndex === 2}
+            selectedNewsIndex={selectedNewsIndex}
+            onSelectNewsIndex={setSelectedNewsIndex}
+            openNewsModalRef={openNewsModalRef}
+          />
+        </div>
+      )}
     </div>
   );
 };

@@ -80,6 +80,35 @@ pub struct SteamImportProgress {
     pub current_game: String,
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct SteamNewsItem {
+    pub gid: String,
+    pub title: String,
+    pub url: String,
+    pub is_external_url: Option<bool>,
+    pub author: String,
+    pub contents: String,
+    pub feedlabel: Option<String>,
+    pub date: u64,
+    pub feedname: Option<String>,
+    pub feed_type: Option<u32>,
+    pub appid: u64,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct SteamNewsResponse {
+    appnews: SteamAppNewsInner,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct SteamAppNewsInner {
+    #[allow(dead_code)]
+    appid: u64,
+    newsitems: Option<Vec<SteamNewsItem>>,
+    #[allow(dead_code)]
+    count: u32,
+}
+
 // ── OpenID 2.0 login flow ─────────────────────────────────────────────────────
 
 /// Starts a local HTTP server, opens the Steam OpenID login page, waits for
@@ -302,6 +331,138 @@ pub async fn get_owned_games(steam_id: &str) -> Result<Vec<SteamOwnedGame>, Stri
         .map_err(|e| format!("Failed to parse Steam library response: {}", e))?;
 
     Ok(data.response.games.unwrap_or_default())
+}
+
+/// Helper: Clean game title for searching (remove trailing (PC), (Shortcut), etc.)
+fn clean_search_title(title: &str) -> String {
+    let mut clean = title.to_string();
+    if let Some(idx) = clean.find('(') {
+        clean = clean[..idx].to_string();
+    }
+    if let Some(idx) = clean.find('[') {
+        clean = clean[..idx].to_string();
+    }
+    clean.trim().to_string()
+}
+
+/// Helper: Search Steam Store for an appid by game name
+pub async fn search_steam_appid_by_name(name: &str) -> Option<u64> {
+    let clean_name = clean_search_title(name);
+    if clean_name.is_empty() {
+        return None;
+    }
+
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    // 1. Try steamcommunity SearchApps API
+    let search_apps_url = format!(
+        "https://steamcommunity.com/actions/SearchApps/{}",
+        urlencoding(&clean_name)
+    );
+
+    #[derive(serde::Deserialize, Debug)]
+    struct SearchAppItem {
+        appid: String,
+    }
+
+    if let Ok(res) = client.get(&search_apps_url).send().await {
+        if let Ok(items) = res.json::<Vec<SearchAppItem>>().await {
+            if let Some(first) = items.into_iter().next() {
+                if let Ok(id) = first.appid.parse::<u64>() {
+                    return Some(id);
+                }
+            }
+        }
+    }
+
+    // 2. Try storesearch API with cc=US
+    let store_search_url = format!(
+        "https://store.steampowered.com/api/storesearch/?term={}&cc=US&l=english",
+        urlencoding(&clean_name)
+    );
+
+    #[derive(serde::Deserialize, Debug)]
+    struct StoreSearchItem {
+        id: u64,
+    }
+
+    #[derive(serde::Deserialize, Debug)]
+    struct StoreSearchResponse {
+        items: Option<Vec<StoreSearchItem>>,
+    }
+
+    if let Ok(res) = client.get(&store_search_url).send().await {
+        if let Ok(data) = res.json::<StoreSearchResponse>().await {
+            if let Some(items) = data.items {
+                if let Some(first) = items.into_iter().next() {
+                    return Some(first.id);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Fetch latest news and patch notes for a game by AppID or Game Name (for custom/local games)
+pub async fn get_game_news(
+    appid_or_id: &str,
+    game_name: Option<&str>,
+    count: u32,
+) -> Result<Vec<SteamNewsItem>, String> {
+    let trimmed = appid_or_id.trim();
+
+    // Determine target Steam AppID: if numeric, use directly. Otherwise, search Steam Store by name.
+    let target_appid = if !trimmed.is_empty() && trimmed.chars().all(|c| c.is_ascii_digit()) {
+        trimmed.to_string()
+    } else if let Some(name) = game_name {
+        if let Some(resolved_id) = search_steam_appid_by_name(name).await {
+            resolved_id.to_string()
+        } else {
+            return Ok(Vec::new());
+        }
+    } else {
+        return Ok(Vec::new());
+    };
+
+    let fetch_count = count + 5;
+    let client = reqwest::Client::new();
+    let url = format!(
+        "https://api.steampowered.com/ISteamNews/GetNewsForApp/v0002/?appid={}&count={}&maxlength=0&format=json",
+        target_appid, fetch_count
+    );
+
+    let response = client.get(&url).send().await
+        .map_err(|e| format!("Failed to fetch Steam news: {}", e))?;
+
+    let data: SteamNewsResponse = response.json().await
+        .map_err(|e| format!("Failed to parse Steam news response: {}", e))?;
+
+    let filtered: Vec<SteamNewsItem> = data.appnews.newsitems.unwrap_or_default()
+        .into_iter()
+        .filter(|item| {
+            let combined = format!(
+                "{} {} {} {}",
+                item.url.to_lowercase(),
+                item.feedname.as_deref().unwrap_or("").to_lowercase(),
+                item.feedlabel.as_deref().unwrap_or("").to_lowercase(),
+                item.author.to_lowercase()
+            );
+
+            !combined.contains("gamemag")
+                && !combined.contains("rockpapershotgun")
+                && !combined.contains("rock_paper")
+                && !combined.contains("rock-paper")
+                && !combined.contains("rock, paper")
+                && !combined.contains("shotgun")
+        })
+        .take(count as usize)
+        .collect();
+
+    Ok(filtered)
 }
 
 /// Returns true if a game/app is a Steam runtime tool or Proton version (e.g. Proton 7.0, Proton Experimental, Steam Linux Runtime, Steamworks Common Redistributables, etc.).

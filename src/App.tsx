@@ -225,11 +225,13 @@ function App() {
     if (!activeDetailGame) return;
     const handleDetailKeys = (e: KeyboardEvent) => {
       if (
+        !activeDetailGame ||
         settingsOpen ||
         launchingGame ||
         loading ||
         editingGame ||
-        fileExplorerOpen
+        fileExplorerOpen ||
+        currentTheme === "atlas"
       )
         return;
 

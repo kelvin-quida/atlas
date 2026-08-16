@@ -59,3 +59,14 @@ pub async fn steam_import_library(
 
     steam_service::import_library(&app, &state.db, &steam_id, &state.app_data_dir).await
 }
+
+/// Fetches news and patch notes for a specific game (by AppID or Game Name for custom games)
+#[tauri::command]
+pub async fn get_steam_news(
+    appid: String,
+    game_name: Option<String>,
+    count: Option<u32>,
+) -> Result<Vec<steam_service::SteamNewsItem>, String> {
+    let count = count.unwrap_or(5);
+    steam_service::get_game_news(&appid, game_name.as_deref(), count).await
+}

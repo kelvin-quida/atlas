@@ -1761,6 +1761,7 @@ pub fn run() {
             commands::steam_commands::steam_logout,
             commands::steam_commands::steam_get_user,
             commands::steam_commands::steam_import_library,
+            commands::steam_commands::get_steam_news,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
