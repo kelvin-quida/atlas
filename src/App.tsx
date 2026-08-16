@@ -1013,7 +1013,12 @@ function App() {
       const fileName = parts[parts.length - 1] || "";
       const dotIndex = fileName.lastIndexOf(".");
       const rawName = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
-      const gameName = rawName.replace(/[-_]+/g, " ").trim();
+      // Split CamelCase/PascalCase words, then replace hyphens/underscores
+      const gameName = rawName
+        .replace(/([a-z])([A-Z])/g, "$1 $2")
+        .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+        .replace(/[-_]+/g, " ")
+        .trim();
 
       let coverUrl: string | null = null;
       try {
@@ -1049,7 +1054,14 @@ function App() {
         const parts = path.replace(/\\/g, "/").split("/");
         const fileName = parts[parts.length - 1];
         const dotIndex = fileName.lastIndexOf(".");
-        setEditName(dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName);
+        const rawName = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
+        // Split CamelCase/PascalCase words, then replace hyphens/underscores
+        const cleanName = rawName
+          .replace(/([a-z])([A-Z])/g, "$1 $2")
+          .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+          .replace(/[-_]+/g, " ")
+          .trim();
+        setEditName(cleanName);
       }
     });
   };
