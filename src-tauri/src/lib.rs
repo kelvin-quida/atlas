@@ -784,6 +784,158 @@ fn get_parent_path(path: &str) -> Result<String, String> {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct MovieItem {
+    pub id: String,
+    pub title: String,
+    pub file_name: String,
+    pub path: String,
+    pub extension: String,
+    pub folder_path: String,
+    pub size_mb: f64,
+}
+
+#[tauri::command]
+fn open_path_in_system(path: &str) -> Result<String, String> {
+    let p = Path::new(path);
+    if !p.exists() {
+        return Err("O arquivo ou pasta não existe no caminho especificado.".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let status = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!("Start-Process -FilePath '{}'", p.to_string_lossy().replace('\'', "''")),
+            ])
+            .status();
+        match status {
+            Ok(s) if s.success() => Ok("Aberto com sucesso".to_string()),
+            Ok(s) => Err(format!("O PowerShell retornou erro: {}", s)),
+            Err(e) => Err(format!("Falha no PowerShell: {}", e)),
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(path).spawn();
+        Ok("Aberto com sucesso".to_string())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err("Plataforma não suportada".to_string())
+    }
+}
+
+#[tauri::command]
+fn scan_movies_in_folder(folder_path: &str) -> Result<Vec<MovieItem>, String> {
+    let root = Path::new(folder_path);
+    if !root.exists() || !root.is_dir() {
+        return Err("A pasta especificada não foi encontrada.".to_string());
+    }
+
+    let video_extensions = vec!["mp4", "mkv", "avi", "mov", "webm", "m4v", "ts", "flv", "wmv"];
+    let mut movies = Vec::new();
+
+    fn walk_dir(
+        dir: &Path,
+        root_str: &str,
+        video_exts: &[&str],
+        movies: &mut Vec<MovieItem>,
+        depth: usize,
+    ) {
+        if depth > 8 || movies.len() >= 500 {
+            return;
+        }
+
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+
+        for entry in entries.flatten() {
+            if movies.len() >= 500 {
+                break;
+            }
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+
+            if name.starts_with('.') || name.starts_with('$') || name == "System Volume Information" {
+                continue;
+            }
+
+            if let Ok(ft) = entry.file_type() {
+                if ft.is_dir() {
+                    walk_dir(&path, root_str, video_exts, movies, depth + 1);
+                } else if ft.is_file() {
+                    let ext = path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .map(|s| s.to_lowercase())
+                        .unwrap_or_default();
+
+                    if video_exts.contains(&ext.as_str()) {
+                        let full_path = path.to_string_lossy().into_owned();
+                        let size_bytes = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                        let size_mb = (size_bytes as f64) / (1024.0 * 1024.0);
+
+                        let file_stem = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or(&name);
+                        let clean_title = clean_movie_title(file_stem);
+
+                        movies.push(MovieItem {
+                            id: format!("{:x}", md5_hash(&full_path)),
+                            title: clean_title,
+                            file_name: name,
+                            path: full_path,
+                            extension: ext.to_uppercase(),
+                            folder_path: root_str.to_string(),
+                            size_mb: (size_mb * 100.0).round() / 100.0,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    walk_dir(root, folder_path, &video_extensions, &mut movies, 0);
+
+    movies.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+    Ok(movies)
+}
+
+fn clean_movie_title(raw: &str) -> String {
+    let mut clean = raw.replace('.', " ").replace('_', " ").replace('-', " ");
+    let noise = [
+        "1080p", "720p", "2160p", "4k", "bluray", "web-dl", "webrip", "hdrip", "x264", "x265",
+        "hevc", "aac", "dts", "dualaudio", "dublado", "legendado", "remux", "yts", "rarbg", "10bit",
+    ];
+
+    for term in noise {
+        clean = clean.replace(term, "");
+        let upper = term.to_uppercase();
+        clean = clean.replace(&upper, "");
+    }
+
+    let result = clean.split_whitespace().collect::<Vec<_>>().join(" ");
+    if result.is_empty() {
+        raw.to_string()
+    } else {
+        result
+    }
+}
+
+fn md5_hash(input: &str) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    input.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// Searches IGDB for a game cover and returns the high-quality URL.
 /// Downloads the image to disk and returns the local asset path if successful.
 #[tauri::command]
@@ -1574,6 +1726,8 @@ pub fn run() {
             list_dir_contents,
             search_files_recursive,
             get_parent_path,
+            open_path_in_system,
+            scan_movies_in_folder,
             // ── IGDB metadata ─────────────────────────────────────────
             get_game_image_url,
             // ── Database game commands (Phase 2) ──────────────────────

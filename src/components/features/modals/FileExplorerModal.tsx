@@ -1,4 +1,4 @@
-﻿import { VirtualKeyboard } from "../../VirtualKeyboard";
+import { VirtualKeyboard } from "../../VirtualKeyboard";
 import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useGamepad } from "../../../providers/GamepadContext";
@@ -13,9 +13,13 @@ interface FileExplorerModalProps {
   gamepadConnected: boolean;
   currentTheme: string;
   fileExplorerListRef: React.RefObject<HTMLDivElement | null>;
+  allowFolderSelect?: boolean;
+  customTitle?: string;
+  customSubtitle?: string;
   onClose: () => void;
   onNavigateToPath: (path: string) => void;
   onSelectFileExplorerItem: (item: any) => void;
+  onSelectCurrentFolder?: (folderPath: string) => void;
   onUpdateExplorerItems?: (items: any[]) => void;
 }
 
@@ -28,9 +32,13 @@ export const FileExplorerModal: React.FC<FileExplorerModalProps> = ({
   gamepadConnected,
   currentTheme,
   fileExplorerListRef,
+  allowFolderSelect = false,
+  customTitle,
+  customSubtitle,
   onClose,
   onNavigateToPath,
   onSelectFileExplorerItem,
+  onSelectCurrentFolder,
   onUpdateExplorerItems,
 }) => {
   const { pushLayer, popLayer, registerLayerHandler } = useGamepad();
@@ -158,6 +166,17 @@ export const FileExplorerModal: React.FC<FileExplorerModalProps> = ({
         return true;
       }
 
+      if (actions.start) {
+        if (allowFolderSelect && fileExplorerPath) {
+          if (onSelectCurrentFolder) {
+            onSelectCurrentFolder(fileExplorerPath);
+          } else {
+            onSelectFileExplorerItem({ path: fileExplorerPath, is_dir: true, is_current_folder: true });
+          }
+          return true;
+        }
+      }
+
       if (actions.y) {
         setIsVirtualKeyboardOpen(true);
         return true;
@@ -220,10 +239,38 @@ export const FileExplorerModal: React.FC<FileExplorerModalProps> = ({
         className="settings-card file-explorer-card"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2>🎮 Selecionar Executável do Jogo (.exe)</h2>
+        <h2>{customTitle || "🎮 Selecionar Executável do Jogo (.exe)"}</h2>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
-          Escolha a unidade (C:\, D:\, E:\) e navegue pelas pastas ou busque diretamente pelo nome do jogo.
+          {customSubtitle || "Escolha a unidade (C:\\, D:\\, E:\\) e navegue pelas pastas ou busque diretamente."}
         </p>
+
+        {allowFolderSelect && fileExplorerPath && (
+          <div style={{ marginBottom: "0.75rem", display: "flex", gap: "0.5rem" }}>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                padding: "0.6rem 1.25rem",
+                borderRadius: "8px",
+                fontWeight: 700,
+                fontSize: "0.9rem",
+                cursor: "pointer",
+              }}
+              onClick={() => {
+                if (onSelectCurrentFolder) {
+                  onSelectCurrentFolder(fileExplorerPath);
+                } else {
+                  onSelectFileExplorerItem({ path: fileExplorerPath, is_dir: true, is_current_folder: true });
+                }
+              }}
+            >
+              📁 Selecionar Esta Pasta Atual ({fileExplorerPath})
+            </button>
+          </div>
+        )}
 
         <div className="file-explorer-header-bar">
           <div className="file-explorer-path-bar">
@@ -372,6 +419,11 @@ export const FileExplorerModal: React.FC<FileExplorerModalProps> = ({
             className="modal-gamepad-hints"
             style={{ marginTop: "1.25rem", display: "flex", gap: "1rem", flexWrap: "wrap", justifyContent: "center" }}
           >
+            {allowFolderSelect && fileExplorerPath && (
+              <span className="yt-hint">
+                <span className="yt-hint-key" style={{ background: "var(--accent-cyan)", color: "#000" }}>START</span> Selecionar Pasta
+              </span>
+            )}
             <span className="yt-hint">
               <span className="yt-hint-key">
                 {currentTheme === "ps5" ? "△" : "Y"}

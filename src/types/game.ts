@@ -35,7 +35,8 @@ export interface PlaytimeStats {
 
 export type SettingsTab = "geral" | "custom" | "aparencia";
 export type EditTab = "general" | "advanced" | "media";
-export type FocusArea = "carousel" | "header";
+export type MainSection = "games" | "media";
+export type FocusArea = "carousel" | "header" | "media";
 
 export interface SteamUserInfo {
   steam_id: string;

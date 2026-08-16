@@ -14,6 +14,7 @@ import {
   SettingsTab,
   EditTab,
   FocusArea,
+  MainSection,
   SteamUserInfo,
   SteamImportResult,
   SteamImportProgress,
@@ -117,7 +118,9 @@ function App() {
   const [imagePickerResults, setImagePickerResults] = useState<string[]>([]);
   const [imagePickerSelectedIndex, setImagePickerSelectedIndex] = useState(-1);
 
-  // States for header focus and navigation
+  // States for main section and focus
+  const [activeSection, setActiveSection] = useState<MainSection>("games");
+  const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
   const [focusArea, setFocusArea] = useState<FocusArea>("carousel");
   const [headerSelectedIndex, setHeaderSelectedIndex] = useState(0);
 
@@ -128,7 +131,11 @@ function App() {
   const [fileExplorerSelectedIndex, setFileExplorerSelectedIndex] = useState(0);
   const [fileExplorerFilter, setFileExplorerFilter] = useState<string[]>([]);
   const [fileExplorerOnSelect, setFileExplorerOnSelect] = useState<((path: string) => void) | null>(null);
+  const [fileExplorerAllowFolderSelect, setFileExplorerAllowFolderSelect] = useState(false);
+  const [fileExplorerTitle, setFileExplorerTitle] = useState("");
+  const [fileExplorerSubtitle, setFileExplorerSubtitle] = useState("");
   const [availableDrives, setAvailableDrives] = useState<string[]>([]);
+  const [mediaItemCount, setMediaItemCount] = useState(4);
 
   // Steam Account States
   const [steamUser, setSteamUser] = useState<SteamUserInfo | null>(null);
@@ -269,6 +276,8 @@ function App() {
     fileExplorerItems,
     activeDetailGame,
     detailSelectedIndex,
+    activeSection,
+    selectedMediaIndex,
   });
 
   // Sync state values with ref
@@ -294,6 +303,8 @@ function App() {
       fileExplorerItems,
       activeDetailGame,
       detailSelectedIndex,
+      activeSection,
+      selectedMediaIndex,
     };
   }, [
     carouselGames,
@@ -316,6 +327,8 @@ function App() {
     fileExplorerItems,
     activeDetailGame,
     detailSelectedIndex,
+    activeSection,
+    selectedMediaIndex,
   ]);
 
   const handleOpenYouTube = async () => {
@@ -801,10 +814,18 @@ function App() {
   // Custom File Explorer and Add Custom Game Helpers
   const openFileExplorer = (
     allowedExts: string[],
-    onSelect: (path: string) => void
+    onSelect: (path: string) => void,
+    options?: {
+      allowFolderSelect?: boolean;
+      customTitle?: string;
+      customSubtitle?: string;
+    }
   ) => {
     setFileExplorerFilter(allowedExts);
     setFileExplorerOnSelect(() => onSelect);
+    setFileExplorerAllowFolderSelect(options?.allowFolderSelect || false);
+    setFileExplorerTitle(options?.customTitle || "");
+    setFileExplorerSubtitle(options?.customSubtitle || "");
 
     invoke<string[]>("get_drives")
       .then((drives) => {
@@ -826,6 +847,100 @@ function App() {
         setFileExplorerSelectedIndex(0);
         setFileExplorerOpen(true);
       });
+  };
+
+  const handleOpenMediaFolderExplorer = () => {
+    openFileExplorer(
+      ["mp4", "mkv", "avi", "mov", "webm", "m4v", "ts", "flv", "wmv"],
+      async (selectedPath) => {
+        if (!selectedPath) return;
+
+        // 1. Save folder path
+        const rawFolders = localStorage.getItem("atlas_media_folders");
+        let folders: any[] = [];
+        if (rawFolders) {
+          try {
+            folders = JSON.parse(rawFolders);
+          } catch (e) {
+            folders = [];
+          }
+        }
+
+        const normalized = selectedPath.replace(/\\/g, "/");
+        const parts = normalized.split("/").filter(Boolean);
+        const folderName = parts[parts.length - 1] || selectedPath;
+
+        if (!folders.some((f) => f.path.toLowerCase() === selectedPath.toLowerCase())) {
+          folders.push({
+            id: Date.now().toString(),
+            name: folderName,
+            path: selectedPath,
+            addedAt: new Date().toISOString(),
+          });
+          localStorage.setItem("atlas_media_folders", JSON.stringify(folders));
+        }
+
+        // 2. Scan movies in folder recursively via Rust command
+        try {
+          const scannedMovies = await invoke<any[]>("scan_movies_in_folder", {
+            folderPath: selectedPath,
+          });
+
+          const rawMovies = localStorage.getItem("atlas_media_movies");
+          let existingMovies: any[] = [];
+          if (rawMovies) {
+            try {
+              existingMovies = JSON.parse(rawMovies);
+            } catch (e) {
+              existingMovies = [];
+            }
+          }
+
+          const existingPaths = new Set(existingMovies.map((m) => m.path.toLowerCase()));
+          const newMovies = scannedMovies.filter((m) => !existingPaths.has(m.path.toLowerCase()));
+
+          const updatedMovies = [...existingMovies, ...newMovies];
+          localStorage.setItem("atlas_media_movies", JSON.stringify(updatedMovies));
+          window.dispatchEvent(new Event("atlas_media_folders_updated"));
+
+          if (scannedMovies.length > 0) {
+            console.log(`[Media] Scanned ${scannedMovies.length} movies in ${selectedPath}`);
+          } else {
+            alert(`Nenhum arquivo de vídeo (.mp4, .mkv, etc.) foi encontrado na pasta "${folderName}".`);
+          }
+        } catch (err) {
+          console.error("Erro ao escanear filmes na pasta:", err);
+          window.dispatchEvent(new Event("atlas_media_folders_updated"));
+        }
+      },
+      {
+        allowFolderSelect: true,
+        customTitle: "🎬 Selecionar Pasta de Filmes / Mídia",
+        customSubtitle: "Navegue até a pasta que contém seus filmes e vídeos e clique em 'Selecionar Esta Pasta' ou aperte START.",
+      }
+    );
+  };
+
+  const getMediaTotalCards = () => {
+    const cards = document.querySelectorAll(".media-card");
+    return cards.length > 0 ? cards.length : mediaItemCount;
+  };
+
+  const getMediaColumnsCount = () => {
+    const gridEl = document.querySelector(".media-grid");
+    if (!gridEl) return 4;
+    const cards = gridEl.querySelectorAll(".media-card");
+    if (cards.length < 2) return 4;
+    const firstTop = (cards[0] as HTMLElement).offsetTop;
+    let cols = 0;
+    for (let i = 0; i < cards.length; i++) {
+      if ((cards[i] as HTMLElement).offsetTop === firstTop) {
+        cols++;
+      } else {
+        break;
+      }
+    }
+    return cols || 4;
   };
 
   const navigateToPath = (newPath: string) => {
@@ -1200,6 +1315,19 @@ function App() {
         return;
       }
 
+      // Tab Switching (L1 / R1 keyboard shortcuts)
+      if (e.key === "q" || e.key === "Q" || e.key === "[" || e.key === "PageUp") {
+        e.preventDefault();
+        setActiveSection("games");
+        setFocusArea("carousel");
+        return;
+      } else if (e.key === "e" || e.key === "E" || e.key === "]" || e.key === "PageDown") {
+        e.preventDefault();
+        setActiveSection("media");
+        setFocusArea("media");
+        return;
+      }
+
       if (focusArea === "carousel") {
         if (e.key === "ArrowLeft") {
           e.preventDefault();
@@ -1226,6 +1354,34 @@ function App() {
           e.preventDefault();
           handleOpenTwitch();
         }
+      } else if (focusArea === "media") {
+        const cols = getMediaColumnsCount();
+        const total = getMediaTotalCards();
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          setSelectedMediaIndex((prev) => (prev > 0 ? prev - 1 : 0));
+        } else if (e.key === "ArrowRight") {
+          e.preventDefault();
+          setSelectedMediaIndex((prev) => (prev < total - 1 ? prev + 1 : total - 1));
+        } else if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSelectedMediaIndex((prev) => {
+            const next = prev + cols;
+            return next < total ? next : prev;
+          });
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          if (selectedMediaIndex >= cols) {
+            setSelectedMediaIndex((prev) => prev - cols);
+          } else {
+            setFocusArea("header");
+            setHeaderSelectedIndex(0);
+          }
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          const mediaCard = document.querySelectorAll(".media-card")[selectedMediaIndex] as HTMLElement;
+          if (mediaCard) mediaCard.click();
+        }
       } else if (focusArea === "header") {
         if (e.key === "ArrowLeft") {
           e.preventDefault();
@@ -1235,7 +1391,7 @@ function App() {
           setHeaderSelectedIndex((prev) => (prev < 3 ? prev + 1 : 0));
         } else if (e.key === "ArrowDown") {
           e.preventDefault();
-          setFocusArea("carousel");
+          setFocusArea(activeSection === "media" ? "media" : "carousel");
         } else if (e.key === "Enter") {
           e.preventDefault();
           if (headerSelectedIndex === 0) {
@@ -1249,7 +1405,7 @@ function App() {
           }
         } else if (e.key === "Escape" || e.key === "Backspace") {
           e.preventDefault();
-          setFocusArea("carousel");
+          setFocusArea(activeSection === "media" ? "media" : "carousel");
         }
       }
     };
@@ -1269,6 +1425,8 @@ function App() {
     editingGame,
     focusArea,
     headerSelectedIndex,
+    activeSection,
+    selectedMediaIndex,
   ]);
 
 
@@ -1468,7 +1626,49 @@ function App() {
         return true;
       }
 
-      if (currentGames.length > 0) {
+      // Global L1 / R1 tab switching on Gamepad
+      if (actions.lb) {
+        setActiveSection("games");
+        setFocusArea("carousel");
+        return true;
+      }
+      if (actions.rb) {
+        setActiveSection("media");
+        setFocusArea("media");
+        return true;
+      }
+
+      if (focusArea === "media") {
+        const cols = getMediaColumnsCount();
+        const total = getMediaTotalCards();
+        const { selectedMediaIndex: mediaIdx } = stateRef.current;
+        if (actions.left) {
+          setSelectedMediaIndex((prev) => (prev > 0 ? prev - 1 : 0));
+        } else if (actions.right) {
+          setSelectedMediaIndex((prev) => (prev < total - 1 ? prev + 1 : total - 1));
+        } else if (actions.down) {
+          setSelectedMediaIndex((prev) => {
+            const next = prev + cols;
+            return next < total ? next : prev;
+          });
+        } else if (actions.up) {
+          if (mediaIdx >= cols) {
+            setSelectedMediaIndex((prev) => prev - cols);
+          } else {
+            setFocusArea("header");
+            setHeaderSelectedIndex(0);
+          }
+        } else if (actions.a) {
+          const mediaCard = document.querySelectorAll(".media-card")[mediaIdx] as HTMLElement;
+          if (mediaCard) mediaCard.click();
+        } else if (actions.b) {
+          setActiveSection("games");
+          setFocusArea("carousel");
+        }
+        return true;
+      }
+
+      if (currentGames.length > 0 || stateRef.current.activeSection === "games") {
         if (focusArea === "carousel") {
           if (actions.left) {
             setSelectedGameIndex((prev) => (prev > 0 ? prev - 1 : currentGames.length - 1));
@@ -1502,14 +1702,14 @@ function App() {
           } else if (actions.right) {
             setHeaderSelectedIndex((prev) => (prev < 3 ? prev + 1 : 0));
           } else if (actions.down) {
-            setFocusArea("carousel");
+            setFocusArea(stateRef.current.activeSection === "media" ? "media" : "carousel");
           } else if (actions.a) {
             if (headerSelectedIndex === 0) handleOpenYouTube();
             else if (headerSelectedIndex === 1) handleOpenTwitch();
             else if (headerSelectedIndex === 2) handleOpenBackloggd();
             else setSettingsOpen(true);
           } else if (actions.b) {
-            setFocusArea("carousel");
+            setFocusArea(stateRef.current.activeSection === "media" ? "media" : "carousel");
           }
         }
       }
@@ -1608,6 +1808,12 @@ function App() {
           focusArea={focusArea}
           headerSelectedIndex={headerSelectedIndex}
           systemTime={systemTime}
+          activeSection={activeSection}
+          onSectionChange={(sec) => {
+            setActiveSection(sec);
+            if (sec === "media") setFocusArea("media");
+            else setFocusArea("carousel");
+          }}
           onOpenYouTube={handleOpenYouTube}
           onOpenTwitch={handleOpenTwitch}
           onOpenBackloggd={handleOpenBackloggd}
@@ -1635,7 +1841,7 @@ function App() {
             galleryNextRef={galleryNextRef}
             galleryLightboxRef={galleryLightboxRef}
           />
-        ) : games.length === 0 && !loading ? (
+        ) : games.length === 0 && !loading && activeSection === "games" ? (
           <EmptyLibrary
             onAddGameClick={() => {
               setSettingsOpen(true);
@@ -1651,6 +1857,8 @@ function App() {
             carouselGames={carouselGames}
             selectedGameIndex={selectedGameIndex}
             focusArea={focusArea}
+            activeSection={activeSection}
+            selectedMediaIndex={selectedMediaIndex}
             imageErrors={imageErrors}
             carouselRef={carouselRef}
             uninstalledCount={uninstalledGames.length}
@@ -1659,6 +1867,12 @@ function App() {
             onSelectGame={handleSelectGameInCarousel}
             onImageError={handleImageError}
             onOpenLibrary={() => setIsLibraryOpen(true)}
+            onOpenYouTube={handleOpenYouTube}
+            onOpenTwitch={handleOpenTwitch}
+            onOpenBackloggd={handleOpenBackloggd}
+            onOpenAddMediaFolder={handleOpenMediaFolderExplorer}
+            onSelectMedia={setSelectedMediaIndex}
+            onMediaItemCountChange={setMediaItemCount}
           />
         )
       }
@@ -1730,9 +1944,18 @@ function App() {
             gamepadConnected={gamepadConnected}
             currentTheme={currentTheme}
             fileExplorerListRef={fileExplorerListRef}
+            allowFolderSelect={fileExplorerAllowFolderSelect}
+            customTitle={fileExplorerTitle}
+            customSubtitle={fileExplorerSubtitle}
             onClose={() => setFileExplorerOpen(false)}
             onNavigateToPath={navigateToPath}
             onSelectFileExplorerItem={handleFileExplorerSelect}
+            onSelectCurrentFolder={(folderPath) => {
+              if (fileExplorerOnSelect) {
+                fileExplorerOnSelect(folderPath);
+              }
+              setFileExplorerOpen(false);
+            }}
           />
 
           <ImagePickerModal
