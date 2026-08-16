@@ -204,7 +204,7 @@ export const GameGallery: React.FC<GameGalleryProps> = ({
         return (
           <div className="gallery-video-container">
             <iframe
-              src={`https://www.youtube.com/embed/${videoId}?autoplay=0&controls=1&rel=0&showinfo=0`}
+              src={`https://www.youtube.com/embed/${videoId}?autoplay=1&controls=1&rel=0&showinfo=0`}
               title="Game Trailer"
               frameBorder="0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"

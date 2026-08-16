@@ -74,3 +74,19 @@ pub async fn get_all_playtimes(
 ) -> Result<Vec<PlaytimeStats>, String> {
     playtime_service::get_all_playtimes(&state.db).await
 }
+
+/// Manually sets/overwrites the total accumulated play time for a game.
+#[tauri::command]
+pub async fn set_game_playtime(
+    state: State<'_, AppState>,
+    game_id: String,
+    total_seconds: i64,
+) -> Result<PlaytimeStats, String> {
+    playtime_service::set_total_playtime(&state.db, &game_id, total_seconds).await?;
+    let formatted = playtime_service::format_playtime(total_seconds);
+    Ok(PlaytimeStats {
+        game_id,
+        total_seconds,
+        formatted,
+    })
+}

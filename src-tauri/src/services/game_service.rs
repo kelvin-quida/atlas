@@ -124,6 +124,7 @@ pub async fn create_game(
             input.exe_path,
             input.cover_url,
             None,
+            None,
             app_data_dir,
         )
         .await;
@@ -308,7 +309,7 @@ pub async fn delete_game(db: &DatabaseConnection, game_id: &str) -> Result<(), S
     Ok(())
 }
 
-/// Updates name, exe_path, cover URL, and background URL for a game.
+/// Updates name, exe_path, cover URL, background URL, and last_played for a game.
 pub async fn update_game(
     db: &DatabaseConnection,
     game_id: &str,
@@ -316,6 +317,7 @@ pub async fn update_game(
     exe_path: Option<String>,
     cover_url: Option<String>,
     background_url: Option<String>,
+    last_played: Option<Option<String>>,
     app_data_dir: &std::path::Path,
 ) -> Result<GameDto, String> {
     let existing = game::Entity::find_by_id(game_id)
@@ -332,6 +334,9 @@ pub async fn update_game(
     }
     if let Some(p) = exe_path {
         active.exe_path = Set(Some(p));
+    }
+    if let Some(lp) = last_played {
+        active.last_played = Set(lp);
     }
 
     let model = active

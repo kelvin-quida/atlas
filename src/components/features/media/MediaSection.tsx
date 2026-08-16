@@ -44,6 +44,7 @@ interface MediaSectionProps {
   onOpenTwitch: () => void;
   onOpenBackloggd: () => void;
   onOpenAddMediaFolder: () => void;
+  onPlayMovie?: (movie: MovieFile) => void;
   onSelectMedia?: (index: number) => void;
   onItemCountChange?: (count: number) => void;
 }
@@ -56,6 +57,7 @@ export const MediaSection: React.FC<MediaSectionProps> = ({
   onOpenTwitch,
   onOpenBackloggd,
   onOpenAddMediaFolder,
+  onPlayMovie,
   onSelectMedia,
   onItemCountChange,
 }) => {
@@ -160,7 +162,13 @@ export const MediaSection: React.FC<MediaSectionProps> = ({
       badgeText: "🍿 Assistir Filme",
       path: movie.path,
       isMovie: true,
-      onClick: () => handleOpenPath(movie.path),
+      onClick: () => {
+        if (onPlayMovie) {
+          onPlayMovie(movie);
+        } else {
+          handleOpenPath(movie.path);
+        }
+      },
       onDelete: () => handleDeleteMovie(movie.id),
       icon: (
         <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

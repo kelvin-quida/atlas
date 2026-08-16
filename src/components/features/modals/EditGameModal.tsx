@@ -1,7 +1,7 @@
 import React from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { GamepadModal } from "../../GamepadModal";
-import { SteamGame, EditTab, PlaytimeStats } from "../../../types/game";
+import { SteamGame, EditTab } from "../../../types/game";
 
 interface EditGameModalProps {
   editingGame: SteamGame | null;
@@ -11,11 +11,16 @@ interface EditGameModalProps {
   editBg: string;
   editTab: EditTab;
   editingSearchingIgdb: boolean;
-  playtimes: Record<string, PlaytimeStats>;
+  editPlaytimeHours: string;
+  editPlaytimeMinutes: string;
+  editLastPlayed: string;
   onClose: () => void;
   onTabChange: (tab: EditTab) => void;
   setEditName: (name: string) => void;
   setEditExe: (exe: string) => void;
+  setEditPlaytimeHours: (hours: string) => void;
+  setEditPlaytimeMinutes: (minutes: string) => void;
+  setEditLastPlayed: (lastPlayed: string) => void;
   onPickExe: () => void;
   onSubmit: (e: React.FormEvent) => void;
   onOpenImagePicker: (target: "cover" | "background") => void;
@@ -29,11 +34,16 @@ export const EditGameModal: React.FC<EditGameModalProps> = ({
   editBg,
   editTab,
   editingSearchingIgdb,
-  playtimes,
+  editPlaytimeHours,
+  editPlaytimeMinutes,
+  editLastPlayed,
   onClose,
   onTabChange,
   setEditName,
   setEditExe,
+  setEditPlaytimeHours,
+  setEditPlaytimeMinutes,
+  setEditLastPlayed,
   onPickExe,
   onSubmit,
   onOpenImagePicker,
@@ -174,31 +184,39 @@ export const EditGameModal: React.FC<EditGameModalProps> = ({
                   <div className="playnite-group-title">Estatísticas</div>
                   <div className="playnite-form-grid">
                     <div className="playnite-field">
-                      <label>Tempo Total Jogado</label>
+                      <label>Horas Jogadas</label>
                       <div className="playnite-input-wrapper">
                         <input
-                          type="text"
-                          value={
-                            playtimes[editingGame.appid]?.formatted || "0h 0m"
-                          }
-                          readOnly
+                          type="number"
+                          min="0"
+                          placeholder="Ex: 1"
+                          value={editPlaytimeHours}
+                          onChange={(e) => setEditPlaytimeHours(e.target.value)}
                         />
                       </div>
                     </div>
 
                     <div className="playnite-field">
+                      <label>Minutos Jogados</label>
+                      <div className="playnite-input-wrapper">
+                        <input
+                          type="number"
+                          min="0"
+                          max="59"
+                          placeholder="Ex: 30"
+                          value={editPlaytimeMinutes}
+                          onChange={(e) => setEditPlaytimeMinutes(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="playnite-field full-width">
                       <label>Último Acesso</label>
                       <div className="playnite-input-wrapper">
                         <input
-                          type="text"
-                          value={
-                            editingGame.last_played
-                              ? new Date(
-                                  editingGame.last_played
-                                ).toLocaleString()
-                              : "Nunca jogado"
-                          }
-                          readOnly
+                          type="datetime-local"
+                          value={editLastPlayed}
+                          onChange={(e) => setEditLastPlayed(e.target.value)}
                         />
                       </div>
                     </div>

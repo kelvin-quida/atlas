@@ -105,6 +105,17 @@ export const GamepadModal: React.FC<GamepadModalProps> = ({
     }
   }, [isOpen, activeTab, activeLayer, layerId]);
 
+  const isEditableInput = (el: Element | null): el is HTMLInputElement | HTMLTextAreaElement => {
+    if (!el) return false;
+    if (el instanceof HTMLTextAreaElement) return !el.readOnly && !el.disabled;
+    if (el instanceof HTMLInputElement) {
+      if (el.readOnly || el.disabled) return false;
+      const nonTextInputTypes = ["checkbox", "radio", "button", "submit", "reset", "file", "image"];
+      return !nonTextInputTypes.includes(el.type);
+    }
+    return false;
+  };
+
   // Keyboard Navigation Listeners
   useEffect(() => {
     if (!isOpen || keyboardConfig?.isOpen) return;
@@ -117,13 +128,10 @@ export const GamepadModal: React.FC<GamepadModalProps> = ({
       }
 
       const active = document.activeElement;
-      const isEditableTextInput =
-        active instanceof HTMLInputElement &&
-        active.type === "text" &&
-        !active.readOnly;
+      const activeIsEditable = isEditableInput(active);
 
       // Q/E or PageUp/PageDown tab switching
-      if (e.key === "PageUp" || (e.key === "q" && !isEditableTextInput) || (e.key === "Q" && !isEditableTextInput)) {
+      if (e.key === "PageUp" || (e.key === "q" && !activeIsEditable) || (e.key === "Q" && !activeIsEditable)) {
         if (tabs && tabs.length > 0 && activeTab && onTabChange) {
           e.preventDefault();
           const currentIndex = tabs.findIndex((t) => t.id === activeTab);
@@ -133,7 +141,7 @@ export const GamepadModal: React.FC<GamepadModalProps> = ({
         return;
       }
 
-      if (e.key === "PageDown" || (e.key === "e" && !isEditableTextInput) || (e.key === "E" && !isEditableTextInput)) {
+      if (e.key === "PageDown" || (e.key === "e" && !activeIsEditable) || (e.key === "E" && !activeIsEditable)) {
         if (tabs && tabs.length > 0 && activeTab && onTabChange) {
           e.preventDefault();
           const currentIndex = tabs.findIndex((t) => t.id === activeTab);
@@ -150,25 +158,20 @@ export const GamepadModal: React.FC<GamepadModalProps> = ({
         e.preventDefault();
         navigateSpatially("down", containerRef.current);
       } else if (e.key === "ArrowLeft") {
-        if (isEditableTextInput) return;
+        if (activeIsEditable) return;
         e.preventDefault();
         navigateSpatially("left", containerRef.current);
       } else if (e.key === "ArrowRight") {
-        if (isEditableTextInput) return;
+        if (activeIsEditable) return;
         e.preventDefault();
         navigateSpatially("right", containerRef.current);
       } else if (e.key === "Enter") {
-        if (active instanceof HTMLInputElement && active.type === "text" && !active.readOnly && !active.disabled) {
-          e.preventDefault();
-          openKeyboardForElement(active);
-        } else if (active instanceof HTMLTextAreaElement && !active.readOnly && !active.disabled) {
+        if (activeIsEditable) {
           e.preventDefault();
           openKeyboardForElement(active);
         } else if (active instanceof HTMLElement) {
-          if (!(active instanceof HTMLInputElement && active.type === "text")) {
-            e.preventDefault();
-            active.click();
-          }
+          e.preventDefault();
+          active.click();
         }
       }
     };
@@ -224,11 +227,7 @@ export const GamepadModal: React.FC<GamepadModalProps> = ({
 
       if (actions.a) {
         const active = document.activeElement;
-        if (active instanceof HTMLInputElement && active.type === "text" && !active.readOnly && !active.disabled) {
-          openKeyboardForElement(active);
-          return true;
-        }
-        if (active instanceof HTMLTextAreaElement && !active.readOnly && !active.disabled) {
+        if (isEditableInput(active)) {
           openKeyboardForElement(active);
           return true;
         }

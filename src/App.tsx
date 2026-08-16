@@ -38,6 +38,8 @@ import { SettingsModal } from "./components/features/settings/SettingsModal";
 import { EditGameModal } from "./components/features/modals/EditGameModal";
 import { FileExplorerModal } from "./components/features/modals/FileExplorerModal";
 import { ImagePickerModal } from "./components/features/modals/ImagePickerModal";
+import { VideoPlayerModal } from "./components/features/modals/VideoPlayerModal";
+import { MovieFile } from "./components/features/media/MediaSection";
 
 function App() {
   // Main games states
@@ -109,6 +111,42 @@ function App() {
   const [editImg, setEditImg] = useState("");
   const [editBg, setEditBg] = useState("");
   const [editTab, setEditTab] = useState<EditTab>("general");
+  const [editPlaytimeHours, setEditPlaytimeHours] = useState("");
+  const [editPlaytimeMinutes, setEditPlaytimeMinutes] = useState("");
+  const [editLastPlayed, setEditLastPlayed] = useState("");
+
+  const handleOpenEditGame = (game: SteamGame, initialTab: EditTab = "general") => {
+    setEditName(game.name);
+    setEditExe(game.exe_path || "");
+    setEditImg(game.image_url || "");
+    setEditBg(game.bg_url || "");
+    setEditTab(initialTab);
+
+    const currentPlaytimeSeconds = playtimes[game.appid]?.total_seconds || 0;
+    const h = Math.floor(currentPlaytimeSeconds / 3600);
+    const m = Math.floor((currentPlaytimeSeconds % 3600) / 60);
+    setEditPlaytimeHours(h > 0 ? String(h) : "0");
+    setEditPlaytimeMinutes(m > 0 ? String(m) : "0");
+
+    if (game.last_played) {
+      try {
+        const d = new Date(game.last_played);
+        const iso = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+          .toISOString()
+          .slice(0, 16);
+        setEditLastPlayed(iso);
+      } catch (e) {
+        setEditLastPlayed("");
+      }
+    } else {
+      setEditLastPlayed("");
+    }
+
+    setEditingGame(game);
+  };
+
+  // State for active in-app playing movie video modal
+  const [activePlayingMovie, setActivePlayingMovie] = useState<MovieFile | null>(null);
 
   // States for background image picker gallery modal
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
@@ -1108,6 +1146,15 @@ function App() {
       }
     }
 
+    let isoLastPlayed: string | null = null;
+    if (editLastPlayed) {
+      try {
+        isoLastPlayed = new Date(editLastPlayed).toISOString();
+      } catch (e) {
+        console.warn("Failed to parse last_played date:", e);
+      }
+    }
+
     try {
       const dto = await invoke<GameDto>("db_update_game", {
         gameId: editingGame.appid,
@@ -1115,7 +1162,25 @@ function App() {
         exePath: editExe,
         coverUrl: resolvedImg,
         backgroundUrl: editBg || null,
+        lastPlayed: isoLastPlayed,
       });
+
+      const parsedHours = parseInt(editPlaytimeHours || "0", 10);
+      const parsedMinutes = parseInt(editPlaytimeMinutes || "0", 10);
+      const safeHours = isNaN(parsedHours) ? 0 : Math.max(0, parsedHours);
+      const safeMinutes = isNaN(parsedMinutes) ? 0 : Math.max(0, Math.min(59, parsedMinutes));
+      const totalSecs = safeHours * 3600 + safeMinutes * 60;
+
+      const newPlaytimeStats = await invoke<PlaytimeStats>("set_game_playtime", {
+        gameId: editingGame.appid,
+        totalSeconds: totalSecs,
+      });
+
+      setPlaytimes((prev) => ({
+        ...prev,
+        [editingGame.appid]: newPlaytimeStats,
+      }));
+
       const updated = gameDtoToSteamGame(dto);
       if (editingGame.isCustom) {
         setCustomGames((prev) =>
@@ -1637,12 +1702,7 @@ function App() {
           if (detailIdx === 0) {
             handleTryLaunchGame(detailGame);
           } else if (detailIdx === 1) {
-            setEditName(detailGame.name);
-            setEditExe(detailGame.exe_path || "");
-            setEditImg(detailGame.image_url || "");
-            setEditBg(detailGame.bg_url || "");
-            setEditTab("media");
-            setEditingGame(detailGame);
+            handleOpenEditGame(detailGame, "media");
           } else if (detailIdx === 2) {
             galleryLightboxRef.current?.();
           }
@@ -1856,12 +1916,7 @@ function App() {
             onClose={() => setActiveDetailGame(null)}
             onTryLaunchGame={handleTryLaunchGame}
             onOpenEditMedia={(game) => {
-              setEditName(game.name);
-              setEditExe(game.exe_path || "");
-              setEditImg(game.image_url || "");
-              setEditBg(game.bg_url || "");
-              setEditTab("media");
-              setEditingGame(game);
+              handleOpenEditGame(game, "media");
             }}
             galleryPrevRef={galleryPrevRef}
             galleryNextRef={galleryNextRef}
@@ -1897,6 +1952,7 @@ function App() {
             onOpenTwitch={handleOpenTwitch}
             onOpenBackloggd={handleOpenBackloggd}
             onOpenAddMediaFolder={handleOpenMediaFolderExplorer}
+            onPlayMovie={(movie) => setActivePlayingMovie(movie)}
             onSelectMedia={setSelectedMediaIndex}
             onMediaItemCountChange={setMediaItemCount}
           />
@@ -1950,14 +2006,25 @@ function App() {
             editBg={editBg}
             editTab={editTab}
             editingSearchingIgdb={editingSearchingIgdb}
-            playtimes={playtimes}
+            editPlaytimeHours={editPlaytimeHours}
+            editPlaytimeMinutes={editPlaytimeMinutes}
+            editLastPlayed={editLastPlayed}
             onClose={() => setEditingGame(null)}
             onTabChange={setEditTab}
             setEditName={setEditName}
             setEditExe={setEditExe}
+            setEditPlaytimeHours={setEditPlaytimeHours}
+            setEditPlaytimeMinutes={setEditPlaytimeMinutes}
+            setEditLastPlayed={setEditLastPlayed}
             onPickExe={handleEditPickExe}
             onSubmit={handleEditCustomGameSubmit}
             onOpenImagePicker={handleOpenImagePicker}
+          />
+
+          <VideoPlayerModal
+            isOpen={activePlayingMovie !== null}
+            movie={activePlayingMovie}
+            onClose={() => setActivePlayingMovie(null)}
           />
 
 

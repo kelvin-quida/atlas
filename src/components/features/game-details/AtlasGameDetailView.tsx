@@ -69,6 +69,10 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
       }
 
       if (actions.left) {
+        if (detailSelectedIndex === 2) {
+          galleryPrevRef?.current?.();
+          return true;
+        }
         setDetailSelectedIndex((prev) => {
           if (prev === 1) return 0;
           if (prev === 4) return 2;
@@ -80,9 +84,12 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
       }
 
       if (actions.right) {
+        if (detailSelectedIndex === 2) {
+          galleryNextRef?.current?.();
+          return true;
+        }
         setDetailSelectedIndex((prev) => {
           if (prev === 0) return 1;
-          if (prev === 2) return 4;
           if (prev === 3) return 5;
           return prev;
         });
@@ -122,23 +129,32 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
     onClose,
     onTryLaunchGame,
     onOpenEditMedia,
+    galleryPrevRef,
+    galleryNextRef,
     galleryLightboxRef,
     registerLayerHandler,
     setDetailSelectedIndex,
   ]);
 
-  // Scroll focused element into view smoothly
+  // Scroll focused element into view smoothly (scroll smoothly to top when hero banner is focused)
   useEffect(() => {
-    let targetEl: HTMLElement | null = null;
-    if (detailSelectedIndex === 0) targetEl = playBtnRef.current;
-    else if (detailSelectedIndex === 1) targetEl = optionsBtnRef.current;
-    else if (detailSelectedIndex === 3) targetEl = installCardRef.current;
-    else if (detailSelectedIndex === 4) targetEl = statsCardRef.current;
-    else if (detailSelectedIndex === 5) targetEl = hltbCardRef.current;
-    else if (detailSelectedIndex === 6) targetEl = achievementsCardRef.current;
+    if (detailSelectedIndex === 0 || detailSelectedIndex === 1) {
+      if (containerRef.current) {
+        containerRef.current.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    } else {
+      let targetEl: HTMLElement | null = null;
+      if (detailSelectedIndex === 2) {
+        const galleryEl = containerRef.current?.querySelector(".atlas-game-gallery");
+        if (galleryEl) targetEl = galleryEl as HTMLElement;
+      } else if (detailSelectedIndex === 3) targetEl = installCardRef.current;
+      else if (detailSelectedIndex === 4) targetEl = statsCardRef.current;
+      else if (detailSelectedIndex === 5) targetEl = hltbCardRef.current;
+      else if (detailSelectedIndex === 6) targetEl = achievementsCardRef.current;
 
-    if (targetEl) {
-      targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
     }
   }, [detailSelectedIndex]);
 

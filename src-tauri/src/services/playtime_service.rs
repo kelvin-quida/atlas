@@ -152,3 +152,33 @@ pub fn format_playtime(total_seconds: i64) -> String {
         "Não jogado".to_string()
     }
 }
+
+/// Overwrites total playtime for a game with specified total_seconds.
+pub async fn set_total_playtime(db: &DatabaseConnection, game_id: &str, total_seconds: i64) -> Result<(), String> {
+    use sea_orm::{ColumnTrait, QueryFilter, EntityTrait};
+
+    let real_id = resolve_game_uuid(db, game_id).await?;
+
+    play_session::Entity::delete_many()
+        .filter(play_session::Column::GameId.eq(&real_id))
+        .exec(db)
+        .await
+        .map_err(|e| format!("Failed to delete existing play sessions: {}", e))?;
+
+    if total_seconds > 0 {
+        let now = Utc::now().to_rfc3339();
+        let active = play_session::ActiveModel {
+            id: sea_orm::ActiveValue::NotSet,
+            game_id: Set(real_id),
+            started_at: Set(now.clone()),
+            ended_at: Set(Some(now)),
+            duration_seconds: Set(Some(total_seconds.max(0) as i32)),
+        };
+        active
+            .insert(db)
+            .await
+            .map_err(|e| format!("Failed to insert new playtime session: {}", e))?;
+    }
+
+    Ok(())
+}

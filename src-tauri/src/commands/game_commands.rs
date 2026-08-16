@@ -54,9 +54,11 @@ pub async fn db_update_game(
     exe_path: Option<String>,
     cover_url: Option<String>,
     background_url: Option<String>,
+    last_played: Option<String>,
 ) -> Result<GameDto, String> {
     let db = &state.db;
-    game_service::update_game(db, &game_id, name, exe_path, cover_url, background_url, &state.app_data_dir).await
+    let lp_param = last_played.map(|s| if s.trim().is_empty() { None } else { Some(s) });
+    game_service::update_game(db, &game_id, name, exe_path, cover_url, background_url, lp_param, &state.app_data_dir).await
 }
 
 /// Migrates legacy games from localStorage format into SQLite.

@@ -1743,6 +1743,7 @@ pub fn run() {
             commands::playtime_commands::end_play_session,
             commands::playtime_commands::get_game_playtime,
             commands::playtime_commands::get_all_playtimes,
+            commands::playtime_commands::set_game_playtime,
             // ── YouTube TV & Twitch ───────────────────────────────────
             open_youtube_webview,
             close_youtube_webview,

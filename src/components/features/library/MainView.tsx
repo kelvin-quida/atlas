@@ -2,7 +2,7 @@ import React from "react";
 import { SteamGame, PlaytimeStats, FocusArea, MainSection } from "../../../types/game";
 import { GameInfoPanel } from "./GameInfoPanel";
 import { GameCarousel } from "./GameCarousel";
-import { MediaSection } from "../media/MediaSection";
+import { MovieFile, MediaSection } from "../media/MediaSection";
 
 export interface MainViewProps {
   activeGame: SteamGame | null;
@@ -26,6 +26,7 @@ export interface MainViewProps {
   onOpenTwitch: () => void;
   onOpenBackloggd: () => void;
   onOpenAddMediaFolder: () => void;
+  onPlayMovie?: (movie: MovieFile) => void;
   onSelectMedia?: (index: number) => void;
   onMediaItemCountChange?: (count: number) => void;
 }
@@ -52,6 +53,7 @@ export const MainView: React.FC<MainViewProps> = ({
   onOpenTwitch,
   onOpenBackloggd,
   onOpenAddMediaFolder,
+  onPlayMovie,
   onSelectMedia,
   onMediaItemCountChange,
 }) => {
@@ -80,6 +82,7 @@ export const MainView: React.FC<MainViewProps> = ({
         onOpenTwitch={onOpenTwitch}
         onOpenBackloggd={onOpenBackloggd}
         onOpenAddMediaFolder={onOpenAddMediaFolder}
+        onPlayMovie={onPlayMovie}
         onSelectMedia={onSelectMedia}
         onItemCountChange={onMediaItemCountChange}
       />
