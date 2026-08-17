@@ -16,45 +16,76 @@ use crate::services::{cache_service, image_service};
 pub async fn get_or_fetch_game_metadata(
     db: &DatabaseConnection,
     game_id: &str,
-    _app_data_dir: &Path,
+    app_data_dir: &Path,
 ) -> Result<GameMetadata, String> {
-    // 1. Check if metadata already exists in SQLite DB
-    if let Ok(Some(existing)) = meta_model::Entity::find_by_id(game_id).one(db).await {
-        let genres: Vec<String> = existing
-            .genres
-            .as_deref()
-            .and_then(|g| serde_json::from_str(g).ok())
-            .unwrap_or_default();
+    get_or_fetch_game_metadata_ext(db, game_id, app_data_dir, false).await
+}
 
-        // If metadata has core info AND review_summary is cached, return cached
-        if (existing.description.is_some() || !genres.is_empty() || existing.developer.is_some()) && existing.review_summary.is_some() {
-            return Ok(GameMetadata {
-                title: None,
-                description: existing.description,
-                genres,
-                developer: existing.developer,
-                publisher: existing.publisher,
-                release_date: existing.release_date,
-                rating: existing.rating,
-                review_summary: existing.review_summary,
-                cover_url: None,
-                background_url: None,
-                igdb_id: None,
-                igdb_url: existing.igdb_url,
-            });
+pub async fn get_or_fetch_game_metadata_ext(
+    db: &DatabaseConnection,
+    game_id: &str,
+    _app_data_dir: &Path,
+    force_refresh: bool,
+) -> Result<GameMetadata, String> {
+    // 1. Load game record to get title and steam_app_id (flexible lookup by ID or Steam App ID)
+    let game = match game::Entity::find_by_id(game_id).one(db).await {
+        Ok(Some(g)) => g,
+        _ => {
+            game::Entity::find()
+                .filter(game::Column::SteamAppId.eq(game_id))
+                .one(db)
+                .await
+                .ok()
+                .flatten()
+                .ok_or_else(|| format!("Game ID {} not found", game_id))?
+        }
+    };
+
+    let target_game_id = &game.id;
+
+    // 2. Check if metadata already exists in SQLite DB (unless force_refresh is requested)
+    if !force_refresh {
+        if let Ok(Some(existing)) = meta_model::Entity::find_by_id(target_game_id).one(db).await {
+            let genres: Vec<String> = existing
+                .genres
+                .as_deref()
+                .and_then(|g| serde_json::from_str(g).ok())
+                .unwrap_or_default();
+
+            // Return cached ONLY if it has core info, review_summary, AND has full community tags (>= 8 tags)
+            if (existing.description.is_some() || !genres.is_empty() || existing.developer.is_some())
+                && existing.review_summary.is_some()
+                && genres.len() >= 8
+            {
+                return Ok(GameMetadata {
+                    title: None,
+                    description: existing.description,
+                    genres,
+                    developer: existing.developer,
+                    publisher: existing.publisher,
+                    release_date: existing.release_date,
+                    rating: existing.rating,
+                    review_summary: existing.review_summary,
+                    cover_url: None,
+                    background_url: None,
+                    igdb_id: None,
+                    igdb_url: existing.igdb_url,
+                });
+            }
         }
     }
 
-    // 2. Load game record to get title and steam_app_id
-    let game = game::Entity::find_by_id(game_id)
-        .one(db)
-        .await
-        .map_err(|e| format!("DB query error: {}", e))?
-        .ok_or_else(|| format!("Game ID {} not found", game_id))?;
-
     // 3. Primary provider: Steam Store API
     let steam_provider = SteamMetadataProvider::new();
-    let fetched_metadata = if let Some(ref appid) = game.steam_app_id {
+    let appid_opt = game.steam_app_id.as_ref().cloned().or_else(|| {
+        if game_id.chars().all(|c| c.is_ascii_digit()) {
+            Some(game_id.to_string())
+        } else {
+            None
+        }
+    });
+
+    let fetched_metadata = if let Some(ref appid) = appid_opt {
         if !appid.trim().is_empty() && appid.chars().all(|c| c.is_ascii_digit()) {
             match steam_provider.fetch_by_appid(appid).await {
                 Ok(Some(meta)) => Some(meta),
@@ -111,7 +142,7 @@ pub async fn get_or_fetch_game_metadata(
     let now = Utc::now().to_rfc3339();
     let genres_json = serde_json::to_string(&metadata.genres).unwrap_or_default();
 
-    let existing = meta_model::Entity::find_by_id(game_id)
+    let existing = meta_model::Entity::find_by_id(target_game_id)
         .one(db)
         .await
         .ok()
@@ -119,7 +150,7 @@ pub async fn get_or_fetch_game_metadata(
 
     if existing.is_some() {
         let active = meta_model::ActiveModel {
-            game_id: Set(game_id.to_string()),
+            game_id: Set(target_game_id.to_string()),
             description: Set(metadata.description.clone()),
             genres: Set(Some(genres_json)),
             developer: Set(metadata.developer.clone()),
@@ -134,7 +165,7 @@ pub async fn get_or_fetch_game_metadata(
         let _ = active.update(db).await;
     } else {
         let active = meta_model::ActiveModel {
-            game_id: Set(game_id.to_string()),
+            game_id: Set(target_game_id.to_string()),
             description: Set(metadata.description.clone()),
             genres: Set(Some(genres_json)),
             developer: Set(metadata.developer.clone()),

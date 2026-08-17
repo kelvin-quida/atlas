@@ -16,13 +16,12 @@ export interface GameMetadata {
   igdb_url?: string;
 }
 
-export function useGameMetadata(gameId: string) {
+export function useGameMetadata(gameId: string, forceRefreshOnMount: boolean = false) {
   const [metadata, setMetadata] = useState<GameMetadata | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let isMounted = true;
+  const fetchMetadata = (forceRefresh: boolean = false) => {
     if (!gameId) {
       setLoading(false);
       return;
@@ -31,25 +30,21 @@ export function useGameMetadata(gameId: string) {
     setLoading(true);
     setError(null);
 
-    invoke<GameMetadata>("get_game_metadata", { gameId })
+    invoke<GameMetadata>("get_game_metadata", { gameId, forceRefresh })
       .then((data) => {
-        if (isMounted) {
-          setMetadata(data);
-          setLoading(false);
-        }
+        setMetadata(data);
+        setLoading(false);
       })
       .catch((err) => {
-        if (isMounted) {
-          console.error("Failed to fetch game metadata:", err);
-          setError(String(err));
-          setLoading(false);
-        }
+        console.error("Failed to fetch game metadata:", err);
+        setError(String(err));
+        setLoading(false);
       });
+  };
 
-    return () => {
-      isMounted = false;
-    };
+  useEffect(() => {
+    fetchMetadata(forceRefreshOnMount);
   }, [gameId]);
 
-  return { metadata, loading, error };
+  return { metadata, loading, error, refetch: fetchMetadata };
 }

@@ -153,8 +153,8 @@ impl SteamMetadataProvider {
             .and_then(|pubs| pubs.first().cloned())
             .or_else(|| data.publishers.as_ref().map(|pubs| pubs.join(", ")));
 
-        // Genres
-        let genres = data
+        // Genres (Official store genres + popular community user tags)
+        let mut genres: Vec<String> = data
             .genres
             .as_ref()
             .map(|list| {
@@ -163,6 +163,41 @@ impl SteamMetadataProvider {
                     .collect()
             })
             .unwrap_or_default();
+
+        // Fetch popular user-defined tags directly from Steam store page HTML
+        let store_url = format!("https://store.steampowered.com/app/{}/?l=portuguese", appid);
+        if let Ok(res) = client
+            .get(&store_url)
+            .header("Cookie", "birthtime=0; mature_content=1")
+            .send()
+            .await
+        {
+            if let Ok(html) = res.text().await {
+                let needle = "class=\"app_tag\"";
+                for chunk in html.split(needle).skip(1) {
+                    if let Some(gt_pos) = chunk.find('>') {
+                        if let Some(close_pos) = chunk[gt_pos..].find("</a>") {
+                            let tag_raw = &chunk[gt_pos + 1..gt_pos + close_pos];
+                            let tag = tag_raw
+                                .replace("&amp;", "&")
+                                .replace("&#39;", "'")
+                                .replace("&quot;", "\"")
+                                .replace('\r', "")
+                                .replace('\n', "")
+                                .replace('\t', "")
+                                .trim()
+                                .to_string();
+                            if !tag.is_empty()
+                                && tag != "+"
+                                && !genres.iter().any(|g| g.eq_ignore_ascii_case(&tag))
+                            {
+                                genres.push(tag);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Release Date
         let release_date = data.release_date.as_ref().and_then(|rd| {

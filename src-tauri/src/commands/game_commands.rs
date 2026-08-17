@@ -128,8 +128,10 @@ pub async fn search_game_images(query: String, target: Option<String>) -> Result
 pub async fn get_game_metadata(
     state: State<'_, AppState>,
     game_id: String,
+    force_refresh: Option<bool>,
 ) -> Result<crate::providers::traits::GameMetadata, String> {
     let db = &state.db;
-    crate::services::metadata_service::get_or_fetch_game_metadata(db, &game_id, &state.app_data_dir).await
+    let force = force_refresh.unwrap_or(false);
+    crate::services::metadata_service::get_or_fetch_game_metadata_ext(db, &game_id, &state.app_data_dir, force).await
 }
 

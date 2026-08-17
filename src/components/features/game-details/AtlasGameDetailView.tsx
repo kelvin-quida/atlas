@@ -71,6 +71,36 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
     return html.replace(/<[^>]*>?/gm, "").trim();
   };
 
+  const getReviewSummaryColor = (reviewSummary?: string, rating?: number): string => {
+    if (reviewSummary) {
+      const s = reviewSummary.toLowerCase();
+      if (s.includes("negativ")) return "#ef5350"; // Red
+      if (s.includes("neutra") || s.includes("mista") || s.includes("mixed")) return "#ffb74d"; // Orange/Yellow
+      if (s.includes("extremamente positiva") || s.includes("overwhelmingly positive")) return "#4caf50"; // Bright Green
+      if (s.includes("positiva") || s.includes("positive")) return "#66bb6a"; // Positive Green
+
+      const match = s.match(/\((\d+)%\)/);
+      if (match) {
+        const pct = parseInt(match[1], 10);
+        if (pct >= 70) return "#66bb6a";
+        if (pct >= 40) return "#ffb74d";
+        return "#ef5350";
+      }
+      return "#66bb6a";
+    }
+
+    if (typeof rating === "number") {
+      const val = rating > 10 ? rating : rating * 10;
+      if (val >= 75) return "#66bb6a";
+      if (val >= 50) return "#ffb74d";
+      return "#ef5350";
+    }
+
+    return "#b0bec5";
+  };
+
+  const [showTagsModal, setShowTagsModal] = useState<boolean>(false);
+
   // Push gamepad layer for atlas-detail-view
   useEffect(() => {
     pushLayer("atlas-detail-view");
@@ -82,6 +112,14 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
   // Register Gamepad layer handler for navigation
   useEffect(() => {
     const unregister = registerLayerHandler("atlas-detail-view", (actions) => {
+      if (showTagsModal) {
+        if (actions.b || actions.a) {
+          setShowTagsModal(false);
+          return true;
+        }
+        return true;
+      }
+
       if (actions.b) {
         if (document.querySelector(".review-modal-overlay")) {
           const closeBtn = document.querySelector(".review-modal-overlay .modal-close-btn") as HTMLButtonElement;
@@ -121,6 +159,8 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           onTryLaunchGame(activeDetailGame);
         } else if (detailSelectedIndex === 1) {
           onOpenEditMedia(activeDetailGame);
+        } else if (detailSelectedIndex === 7) {
+          setShowTagsModal(true);
         } else if (detailSelectedIndex === 2) {
           if (activeTab === "overview") {
             galleryLightboxRef?.current?.();
@@ -186,6 +226,7 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           setDetailSelectedIndex(0);
         } else {
           setDetailSelectedIndex((prev) => {
+            if (prev === 0 || prev === 1) return 7;
             if (prev === 2) return 0;
             if (activeTab === "overview") {
               if (prev === 3) return 2;
@@ -208,6 +249,7 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           if (reviewsNavRef.current?.handleAction("down")) return true;
         } else {
           setDetailSelectedIndex((prev) => {
+            if (prev === 7) return 0;
             if (prev === 0 || prev === 1) return 2;
             if (activeTab === "overview") {
               if (prev === 2) return 3;
@@ -426,12 +468,31 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
       >
         <div className="hydra-hero-gradient-overlay" />
         <div className="atlas-hero-main-info hydra-hero-info">
-          <div className="atlas-hero-badges">
-            {metadata?.genres && metadata.genres.map((genre) => (
-              <span key={genre} className="platform-badge hydra-platform-badge" style={{ background: "rgba(255, 255, 255, 0.05)", color: "#e0e0e0" }}>
+          <div
+            tabIndex={0}
+            className={`atlas-hero-badges focusable ${
+              detailSelectedIndex === 7 ? "focused" : ""
+            }`}
+            onClick={() => setShowTagsModal(true)}
+            onMouseEnter={() => setDetailSelectedIndex(7)}
+            style={{ cursor: "pointer" }}
+            title="Clique ou pressione (A) para ver todas as tags"
+          >
+            {metadata?.genres && metadata.genres.slice(0, 5).map((genre) => (
+              <span key={genre} className="platform-badge hydra-platform-badge minimalist-tag">
                 {genre}
               </span>
             ))}
+            {metadata?.genres && metadata.genres.length > 3 && (
+              <span
+                className="platform-badge hydra-platform-badge minimalist-tag minimalist-tag-more"
+              >
+                +{metadata.genres.length - 5}
+              </span>
+            )}
+            {detailSelectedIndex === 7 && (
+              <span className="tags-expand-hint">(A) Ver todas</span>
+            )}
           </div>
 
           <h1 className="atlas-hero-title hydra-hero-title">
@@ -669,13 +730,7 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
                   <span
                     className="stat-score hydra-rating-val"
                     style={{
-                      color: metadata?.review_summary
-                        ? metadata.review_summary.toLowerCase().includes("neutra") || metadata.review_summary.toLowerCase().includes("mista") || metadata.review_summary.toLowerCase().includes("mixed")
-                          ? "#ffb74d"
-                          : metadata.review_summary.toLowerCase().includes("negativ")
-                          ? "#ef5350"
-                          : "#66bb6a"
-                        : "#b0bec5",
+                      color: getReviewSummaryColor(metadata?.review_summary, metadata?.rating),
                       fontWeight: "600",
                     }}
                   >
@@ -693,6 +748,19 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
                       {metadata.developer.length > 18
                         ? `${metadata.developer.substring(0, 18)}...`
                         : metadata.developer}
+                    </span>
+                  </div>
+                )}
+                {metadata?.genres && metadata.genres.length > 0 && (
+                  <div className="stat-row hydra-stat-row">
+                    <span className="stat-name">Marcadores</span>
+                    <span
+                      className="stat-score"
+                      style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                      title={metadata.genres.join(", ")}
+                    >
+                      {metadata.genres.slice(0, 3).join(", ")}
+                      {metadata.genres.length > 3 ? ` (+${metadata.genres.length - 3})` : ""}
                     </span>
                   </div>
                 )}
@@ -809,6 +877,33 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
             openReviewModalRef={openReviewModalRef}
             onFilteredCountChange={setFilteredReviewCount}
           />
+        </div>
+      )}
+
+      {/* Expanded Tags Modal */}
+      {showTagsModal && metadata?.genres && (
+        <div className="tags-modal-overlay" onClick={() => setShowTagsModal(false)}>
+          <div className="tags-modal-container" onClick={(e) => e.stopPropagation()}>
+            <div className="tags-modal-header">
+              <h3>Marcadores & Gêneros — {activeDetailGame.name}</h3>
+              <button
+                className="modal-close-btn"
+                onClick={() => setShowTagsModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="tags-modal-body">
+              {metadata.genres.map((genre) => (
+                <span key={genre} className="tags-modal-chip">
+                  {genre}
+                </span>
+              ))}
+            </div>
+            <div className="tags-modal-footer">
+              <span className="gamepad-hint">(B) / Esc Fechar</span>
+            </div>
+          </div>
         </div>
       )}
     </div>
