@@ -4,7 +4,10 @@ import { SteamGame, PlaytimeStats } from "../../../types/game";
 import { useGameMedia } from "./useGameMedia";
 import { GameGallery } from "./GameGallery";
 import { GameNews } from "./GameNews";
-import { useSteamNews } from "./useSteamNews";
+import { useSteamNews, SteamNewsItem } from "./useSteamNews";
+import { GameReviews, GameReviewsNavHandler } from "./GameReviews";
+import { useSteamReviews } from "./useSteamReviews";
+import { useGameMetadata } from "./useGameMetadata";
 import { useGamepad } from "../../../providers/GamepadContext";
 
 interface AtlasGameDetailViewProps {
@@ -32,14 +35,19 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
   galleryNextRef,
   galleryLightboxRef,
 }) => {
-  const [activeTab, setActiveTab] = useState<"overview" | "news">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "news" | "reviews">("overview");
   const [selectedNewsIndex, setSelectedNewsIndex] = useState<number>(0);
+  const [selectedReviewIndex, setSelectedReviewIndex] = useState<number>(0);
+  const [filteredReviewCount, setFilteredReviewCount] = useState<number>(0);
   const openNewsModalRef = useRef<((item?: SteamNewsItem) => void) | null>(null);
+  const openReviewModalRef = useRef<((index?: number) => void) | null>(null);
+  const reviewsNavRef = useRef<GameReviewsNavHandler | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const playBtnRef = useRef<HTMLButtonElement | null>(null);
   const optionsBtnRef = useRef<HTMLButtonElement | null>(null);
   const newsCardRef = useRef<HTMLDivElement | null>(null);
+  const reviewsCardRef = useRef<HTMLDivElement | null>(null);
   const installCardRef = useRef<HTMLDivElement | null>(null);
   const statsCardRef = useRef<HTMLDivElement | null>(null);
   const hltbCardRef = useRef<HTMLDivElement | null>(null);
@@ -47,7 +55,21 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
 
   const { media, loading, error } = useGameMedia(activeDetailGame.appid, activeDetailGame.name);
   const { news: steamNews, loading: newsLoading, error: newsError } = useSteamNews(activeDetailGame.appid, activeDetailGame.name);
+  const {
+    reviews: steamReviews,
+    loading: reviewsLoading,
+    loadingMore: reviewsLoadingMore,
+    error: reviewsError,
+    hasMore: reviewsHasMore,
+    loadMore: loadReviewsMore,
+  } = useSteamReviews(activeDetailGame.appid, activeDetailGame.name);
+  const { metadata } = useGameMetadata(activeDetailGame.appid);
   const { pushLayer, popLayer, registerLayerHandler } = useGamepad();
+
+  const cleanDescription = (html?: string) => {
+    if (!html) return "";
+    return html.replace(/<[^>]*>?/gm, "").trim();
+  };
 
   // Push gamepad layer for atlas-detail-view
   useEffect(() => {
@@ -61,6 +83,11 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
   useEffect(() => {
     const unregister = registerLayerHandler("atlas-detail-view", (actions) => {
       if (actions.b) {
+        if (document.querySelector(".review-modal-overlay")) {
+          const closeBtn = document.querySelector(".review-modal-overlay .modal-close-btn") as HTMLButtonElement;
+          if (closeBtn) closeBtn.click();
+          return true;
+        }
         if (detailSelectedIndex !== 0) {
           setDetailSelectedIndex(0);
         } else if (onClose) {
@@ -70,15 +97,22 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
       }
 
       if (actions.lb) {
-        setActiveTab("overview");
+        setActiveTab((prev) => {
+          if (prev === "reviews") return "news";
+          return "overview";
+        });
         setDetailSelectedIndex(0);
         return true;
       }
 
       if (actions.rb) {
-        setActiveTab("news");
+        setActiveTab((prev) => {
+          if (prev === "overview") return "news";
+          return "reviews";
+        });
         setDetailSelectedIndex(0);
-        setSelectedNewsIndex(0);
+        if (activeTab === "overview") setSelectedNewsIndex(0);
+        if (activeTab === "news") setSelectedReviewIndex(0);
         return true;
       }
 
@@ -92,6 +126,8 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
             galleryLightboxRef?.current?.();
           } else if (activeTab === "news") {
             openNewsModalRef.current?.();
+          } else if (activeTab === "reviews") {
+            if (reviewsNavRef.current?.handleAction("a")) return true;
           }
         }
         return true;
@@ -101,6 +137,9 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
         if (activeTab === "overview" && detailSelectedIndex === 2) {
           galleryPrevRef?.current?.();
           return true;
+        }
+        if (activeTab === "reviews" && detailSelectedIndex === 2) {
+          if (reviewsNavRef.current?.handleAction("left")) return true;
         }
         setDetailSelectedIndex((prev) => {
           if (prev === 1) return 0;
@@ -118,6 +157,9 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
         if (activeTab === "overview" && detailSelectedIndex === 2) {
           galleryNextRef?.current?.();
           return true;
+        }
+        if (activeTab === "reviews" && detailSelectedIndex === 2) {
+          if (reviewsNavRef.current?.handleAction("right")) return true;
         }
         setDetailSelectedIndex((prev) => {
           if (prev === 0) return 1;
@@ -137,6 +179,11 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           } else {
             setDetailSelectedIndex(0);
           }
+        } else if (activeTab === "reviews" && detailSelectedIndex === 2) {
+          if (reviewsNavRef.current?.handleAction("up")) {
+            return true;
+          }
+          setDetailSelectedIndex(0);
         } else {
           setDetailSelectedIndex((prev) => {
             if (prev === 2) return 0;
@@ -157,6 +204,8 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           if (selectedNewsIndex < steamNews.length - 1) {
             setSelectedNewsIndex((prev) => prev + 1);
           }
+        } else if (activeTab === "reviews" && detailSelectedIndex === 2) {
+          if (reviewsNavRef.current?.handleAction("down")) return true;
         } else {
           setDetailSelectedIndex((prev) => {
             if (prev === 0 || prev === 1) return 2;
@@ -179,6 +228,8 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
     activeTab,
     detailSelectedIndex,
     selectedNewsIndex,
+    selectedReviewIndex,
+    filteredReviewCount,
     steamNews,
     activeDetailGame,
     onClose,
@@ -204,16 +255,19 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           onClose();
         }
       } else if (e.key === "q" || e.key === "Q") {
-        setActiveTab("overview");
+        setActiveTab((prev) => (prev === "reviews" ? "news" : "overview"));
         setDetailSelectedIndex(0);
       } else if (e.key === "e" || e.key === "E") {
-        setActiveTab("news");
+        setActiveTab((prev) => (prev === "overview" ? "news" : "reviews"));
         setDetailSelectedIndex(0);
-        setSelectedNewsIndex(0);
+        if (activeTab === "overview") setSelectedNewsIndex(0);
+        if (activeTab === "news") setSelectedReviewIndex(0);
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
         if (activeTab === "overview" && detailSelectedIndex === 2) {
           galleryPrevRef?.current?.();
+        } else if (activeTab === "reviews" && detailSelectedIndex === 2) {
+          reviewsNavRef.current?.handleAction("left");
         } else {
           setDetailSelectedIndex((prev) => {
             if (prev === 1) return 0;
@@ -229,6 +283,8 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
         e.preventDefault();
         if (activeTab === "overview" && detailSelectedIndex === 2) {
           galleryNextRef?.current?.();
+        } else if (activeTab === "reviews" && detailSelectedIndex === 2) {
+          reviewsNavRef.current?.handleAction("right");
         } else {
           setDetailSelectedIndex((prev) => {
             if (prev === 0) return 1;
@@ -245,6 +301,10 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           if (selectedNewsIndex > 0) {
             setSelectedNewsIndex((prev) => prev - 1);
           } else {
+            setDetailSelectedIndex(0);
+          }
+        } else if (activeTab === "reviews" && detailSelectedIndex === 2) {
+          if (!reviewsNavRef.current?.handleAction("up")) {
             setDetailSelectedIndex(0);
           }
         } else {
@@ -265,6 +325,8 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           if (selectedNewsIndex < steamNews.length - 1) {
             setSelectedNewsIndex((prev) => prev + 1);
           }
+        } else if (activeTab === "reviews" && detailSelectedIndex === 2) {
+          reviewsNavRef.current?.handleAction("down");
         } else {
           setDetailSelectedIndex((prev) => {
             if (prev === 0 || prev === 1) return 2;
@@ -287,6 +349,8 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
             galleryLightboxRef?.current?.();
           } else if (activeTab === "news") {
             openNewsModalRef.current?.();
+          } else if (activeTab === "reviews") {
+            reviewsNavRef.current?.handleAction("a");
           }
         }
       }
@@ -363,12 +427,11 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
         <div className="hydra-hero-gradient-overlay" />
         <div className="atlas-hero-main-info hydra-hero-info">
           <div className="atlas-hero-badges">
-            <span className="platform-badge hydra-platform-badge">
-              🎮{" "}
-              {activeDetailGame.isCustom
-                ? "Jogo Personalizado (PC)"
-                : "Biblioteca Steam"}
-            </span>
+            {metadata?.genres && metadata.genres.map((genre) => (
+              <span key={genre} className="platform-badge hydra-platform-badge" style={{ background: "rgba(255, 255, 255, 0.05)", color: "#e0e0e0" }}>
+                {genre}
+              </span>
+            ))}
           </div>
 
           <h1 className="atlas-hero-title hydra-hero-title">
@@ -376,7 +439,9 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           </h1>
 
           <p className="hydra-hero-description">
-            {activeDetailGame.isCustom
+            {metadata?.description
+              ? cleanDescription(metadata.description)
+              : activeDetailGame.isCustom
               ? "Jogo adicionado à sua biblioteca pessoal do Atlas. Execute diretamente com suporte total a controles e personalizações."
               : `Entre no universo fascinante de ${activeDetailGame.name || "seu jogo"}. Enfrente grandes desafios, explore cenários épicos e acompanhe cada conquista da sua jornada.`}
           </p>
@@ -471,6 +536,7 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           onClick={() => {
             setActiveTab("news");
             setDetailSelectedIndex(0);
+            setSelectedNewsIndex(0);
           }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -484,6 +550,25 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
             <span className="tab-badge">{steamNews.length}</span>
           )}
           <span className="tab-key-hint">R1</span>
+        </button>
+
+        <button
+          type="button"
+          className={`detail-tab-item ${activeTab === "reviews" ? "active" : ""}`}
+          onClick={() => {
+            setActiveTab("reviews");
+            setDetailSelectedIndex(0);
+            setSelectedReviewIndex(0);
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+          <span>Análises dos Jogadores</span>
+          {steamReviews.length > 0 && (
+            <span className="tab-badge">{steamReviews.length}</span>
+          )}
+          <span className="tab-key-hint">R2</span>
         </button>
       </div>
 
@@ -515,6 +600,30 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
                 <h3 className="atlas-card-title">Informações do Sistema</h3>
               </div>
               <div className="install-info-list hydra-info-list">
+                {metadata?.developer && (
+                  <div className="info-row">
+                    <span className="info-key">Estúdio:</span>
+                    <span className="info-val" title={metadata.developer}>
+                      {metadata.developer}
+                    </span>
+                  </div>
+                )}
+                {metadata?.publisher && (
+                  <div className="info-row">
+                    <span className="info-key">Publicadora:</span>
+                    <span className="info-val" title={metadata.publisher}>
+                      {metadata.publisher}
+                    </span>
+                  </div>
+                )}
+                {metadata?.release_date && (
+                  <div className="info-row">
+                    <span className="info-key">Lançamento:</span>
+                    <span className="info-val">
+                      {metadata.release_date}
+                    </span>
+                  </div>
+                )}
                 <div className="info-row">
                   <span className="info-key">Executável:</span>
                   <span
@@ -556,16 +665,42 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
               </div>
               <div className="stats-list hydra-stats-table">
                 <div className="stat-row hydra-stat-row">
-                  <span className="stat-name">Avaliação</span>
-                  <span className="stat-score hydra-rating-val">★ 5.0</span>
+                  <span className="stat-name">Avaliação Geral</span>
+                  <span
+                    className="stat-score hydra-rating-val"
+                    style={{
+                      color: metadata?.review_summary
+                        ? metadata.review_summary.toLowerCase().includes("neutra") || metadata.review_summary.toLowerCase().includes("mista") || metadata.review_summary.toLowerCase().includes("mixed")
+                          ? "#ffb74d"
+                          : metadata.review_summary.toLowerCase().includes("negativ")
+                          ? "#ef5350"
+                          : "#66bb6a"
+                        : "#b0bec5",
+                      fontWeight: "600",
+                    }}
+                  >
+                    {metadata?.review_summary
+                      ? metadata.review_summary
+                      : metadata?.rating
+                      ? `★ ${metadata.rating}`
+                      : "Sem análises suficientes"}
+                  </span>
                 </div>
+                {metadata?.developer && (
+                  <div className="stat-row hydra-stat-row">
+                    <span className="stat-name">Desenvolvedora</span>
+                    <span className="stat-score" title={metadata.developer}>
+                      {metadata.developer.length > 18
+                        ? `${metadata.developer.substring(0, 18)}...`
+                        : metadata.developer}
+                    </span>
+                  </div>
+                )}
                 <div className="stat-row hydra-stat-row">
-                  <span className="stat-name">Downloads</span>
-                  <span className="stat-score">700K</span>
-                </div>
-                <div className="stat-row hydra-stat-row">
-                  <span className="stat-name">Jogando Agora</span>
-                  <span className="stat-score">1.6K</span>
+                  <span className="stat-name">Fonte de Dados</span>
+                  <span className="stat-score">
+                    {metadata?.igdb_url ? "IGDB" : "Steam Store"}
+                  </span>
                 </div>
               </div>
             </div>
@@ -638,7 +773,7 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
             </div>
           </div>
         </div>
-      ) : (
+      ) : activeTab === "news" ? (
         <div
           ref={newsCardRef}
           className="atlas-detail-news-tab-container"
@@ -652,6 +787,27 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
             selectedNewsIndex={selectedNewsIndex}
             onSelectNewsIndex={setSelectedNewsIndex}
             openNewsModalRef={openNewsModalRef}
+          />
+        </div>
+      ) : (
+        <div
+          ref={reviewsCardRef}
+          className="atlas-detail-reviews-tab-container"
+          onMouseEnter={() => setDetailSelectedIndex(2)}
+        >
+          <GameReviews
+            ref={reviewsNavRef}
+            reviews={steamReviews}
+            loading={reviewsLoading}
+            loadingMore={reviewsLoadingMore}
+            error={reviewsError}
+            hasMore={reviewsHasMore}
+            onLoadMore={loadReviewsMore}
+            isFocused={detailSelectedIndex === 2}
+            selectedReviewIndex={selectedReviewIndex}
+            onSelectReviewIndex={setSelectedReviewIndex}
+            openReviewModalRef={openReviewModalRef}
+            onFilteredCountChange={setFilteredReviewCount}
           />
         </div>
       )}

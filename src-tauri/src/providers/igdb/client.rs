@@ -165,6 +165,20 @@ impl MetadataProvider for IgdbProvider {
             .map(|g| g.name)
             .collect();
 
+        let review_summary = game.rating.map(|r| {
+            if r >= 95.0 {
+                format!("Extremamente positivas ({:.0}%)", r)
+            } else if r >= 80.0 {
+                format!("Muito positivas ({:.0}%)", r)
+            } else if r >= 70.0 {
+                format!("Positivas ({:.0}%)", r)
+            } else if r >= 50.0 {
+                format!("Ligeiramente positivas ({:.0}%)", r)
+            } else {
+                format!("Mistas ({:.0}%)", r)
+            }
+        });
+
         Ok(Some(GameMetadata {
             title: Some(game.name),
             description: game.summary,
@@ -173,6 +187,7 @@ impl MetadataProvider for IgdbProvider {
             publisher,
             release_date,
             rating: game.rating,
+            review_summary,
             cover_url,
             background_url: None,
             igdb_id: game.id,

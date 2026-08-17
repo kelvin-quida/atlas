@@ -465,6 +465,173 @@ pub async fn get_game_news(
     Ok(filtered)
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct SteamReviewItem {
+    pub recommendationid: String,
+    pub author_name: String,
+    pub author_avatar: String,
+    pub playtime_forever_hours: f64,
+    pub voted_up: bool,
+    pub votes_up: u32,
+    pub votes_funny: u32,
+    pub review_text: String,
+    pub timestamp_created: u64,
+    pub language: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct SteamReviewsFetchResult {
+    pub reviews: Vec<SteamReviewItem>,
+    pub cursor: Option<String>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct SteamReviewsListResponse {
+    #[allow(dead_code)]
+    success: u32,
+    cursor: Option<String>,
+    reviews: Option<Vec<SteamRawReview>>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct SteamRawReview {
+    recommendationid: String,
+    author: SteamRawReviewAuthor,
+    language: String,
+    review: String,
+    timestamp_created: u64,
+    voted_up: bool,
+    votes_up: u32,
+    votes_funny: u32,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct SteamRawReviewAuthor {
+    steamid: String,
+    personaname: Option<String>,
+    avatar: Option<String>,
+    playtime_forever: Option<u64>,
+}
+
+/// Helper: map app language code to Steam's internal review language parameter
+fn map_app_language_to_steam(lang: &str) -> String {
+    let lower = lang.to_lowercase();
+    if lower.contains("pt") || lower.contains("portuguese") || lower.contains("brazilian") || lower.contains("br") {
+        "brazilian,portuguese".to_string()
+    } else if lower.contains("es") || lower.contains("spanish") {
+        "spanish,latam".to_string()
+    } else if lower.contains("en") || lower.contains("english") {
+        "english".to_string()
+    } else if lower.contains("fr") || lower.contains("french") {
+        "french".to_string()
+    } else if lower.contains("de") || lower.contains("german") {
+        "german".to_string()
+    } else if lower.contains("ja") || lower.contains("japanese") {
+        "japanese".to_string()
+    } else if lower.contains("zh") || lower.contains("chinese") {
+        "schinese,tchinese".to_string()
+    } else {
+        lower
+    }
+}
+
+/// Fetch player reviews from Steam Store AppReviews API for a game (filtered by app language & cursor)
+pub async fn get_game_reviews(
+    appid_or_id: &str,
+    game_name: Option<&str>,
+    count: u32,
+    language: Option<&str>,
+    cursor: Option<&str>,
+) -> Result<SteamReviewsFetchResult, String> {
+    let trimmed = appid_or_id.trim();
+
+    let target_appid = if !trimmed.is_empty() && trimmed.chars().all(|c| c.is_ascii_digit()) {
+        trimmed.to_string()
+    } else if let Some(name) = game_name {
+        if let Some(resolved_id) = search_steam_appid_by_name(name).await {
+            resolved_id.to_string()
+        } else {
+            return Ok(SteamReviewsFetchResult { reviews: Vec::new(), cursor: None });
+        }
+    } else {
+        return Ok(SteamReviewsFetchResult { reviews: Vec::new(), cursor: None });
+    };
+
+    let fetch_count = count.clamp(1, 100);
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    let target_lang = language
+        .map(map_app_language_to_steam)
+        .unwrap_or_else(|| "brazilian,portuguese".to_string());
+
+    let cursor_param = cursor.unwrap_or("*");
+    let encoded_cursor: String = url::form_urlencoded::byte_serialize(cursor_param.as_bytes()).collect();
+
+    // 1. Try to fetch reviews in requested language
+    let url = format!(
+        "https://store.steampowered.com/appreviews/{}?json=1&language={}&l=portuguese&filter=all&review_type=all&purchase_type=all&num_per_page={}&cursor={}",
+        target_appid, target_lang, fetch_count, encoded_cursor
+    );
+
+    let mut raw_reviews = Vec::new();
+    let mut next_cursor = None;
+
+    if let Ok(response) = client.get(&url).send().await {
+        if let Ok(data) = response.json::<SteamReviewsListResponse>().await {
+            next_cursor = data.cursor;
+            raw_reviews = data.reviews.unwrap_or_default();
+        }
+    }
+
+    // 2. If language-filtered reviews are empty and initial request, fallback to language=all
+    if raw_reviews.is_empty() && (cursor_param == "*" || cursor.is_none()) {
+        let fallback_url = format!(
+            "https://store.steampowered.com/appreviews/{}?json=1&language=all&l=portuguese&filter=all&review_type=all&purchase_type=all&num_per_page={}&cursor=*",
+            target_appid, fetch_count
+        );
+        if let Ok(response) = client.get(&fallback_url).send().await {
+            if let Ok(data) = response.json::<SteamReviewsListResponse>().await {
+                next_cursor = data.cursor;
+                raw_reviews = data.reviews.unwrap_or_default();
+            }
+        }
+    }
+
+    let items: Vec<SteamReviewItem> = raw_reviews
+        .into_iter()
+        .map(|r| {
+            let author_name = r.author.personaname.clone()
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or_else(|| format!("Jogador {}", &r.author.steamid[..6.min(r.author.steamid.len())]));
+            let avatar = r.author.avatar.clone().map(|hash| {
+                format!("https://avatars.steamstatic.com/{}_full.jpg", hash)
+            }).unwrap_or_default();
+            let hours = r.author.playtime_forever.unwrap_or(0) as f64 / 60.0;
+
+            SteamReviewItem {
+                recommendationid: r.recommendationid,
+                author_name,
+                author_avatar: avatar,
+                playtime_forever_hours: (hours * 10.0).round() / 10.0,
+                voted_up: r.voted_up,
+                votes_up: r.votes_up,
+                votes_funny: r.votes_funny,
+                review_text: r.review,
+                timestamp_created: r.timestamp_created,
+                language: r.language,
+            }
+        })
+        .collect();
+
+    Ok(SteamReviewsFetchResult {
+        reviews: items,
+        cursor: next_cursor,
+    })
+}
+
 /// Returns true if a game/app is a Steam runtime tool or Proton version (e.g. Proton 7.0, Proton Experimental, Steam Linux Runtime, Steamworks Common Redistributables, etc.).
 pub fn is_steam_tool_or_proton(name: &str, appid: Option<&str>) -> bool {
     if let Some(id) = appid {

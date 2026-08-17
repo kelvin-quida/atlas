@@ -70,3 +70,16 @@ pub async fn get_steam_news(
     let count = count.unwrap_or(5);
     steam_service::get_game_news(&appid, game_name.as_deref(), count).await
 }
+
+/// Fetches community player reviews for a specific game (by AppID or Game Name for custom games)
+#[tauri::command]
+pub async fn get_steam_reviews(
+    appid: String,
+    game_name: Option<String>,
+    count: Option<u32>,
+    language: Option<String>,
+    cursor: Option<String>,
+) -> Result<steam_service::SteamReviewsFetchResult, String> {
+    let count = count.unwrap_or(20);
+    steam_service::get_game_reviews(&appid, game_name.as_deref(), count, language.as_deref(), cursor.as_deref()).await
+}

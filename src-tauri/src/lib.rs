@@ -1737,6 +1737,7 @@ pub fn run() {
             commands::game_commands::db_update_game,
             commands::game_commands::db_migrate_from_localstorage,
             commands::game_commands::search_game_images,
+            commands::game_commands::get_game_metadata,
             commands::media_commands::db_get_game_media,
             // ── Playtime tracking commands (Phase 5) ─────────────────────────────────
             commands::playtime_commands::start_play_session,
@@ -1762,6 +1763,7 @@ pub fn run() {
             commands::steam_commands::steam_get_user,
             commands::steam_commands::steam_import_library,
             commands::steam_commands::get_steam_news,
+            commands::steam_commands::get_steam_reviews,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -10,6 +10,7 @@ pub struct GameMetadata {
     pub publisher: Option<String>,
     pub release_date: Option<String>,
     pub rating: Option<f64>,
+    pub review_summary: Option<String>,
     pub cover_url: Option<String>,
     pub background_url: Option<String>,
     pub igdb_id: Option<i64>,

@@ -12,6 +12,7 @@ pub struct Model {
     pub publisher: Option<String>,
     pub release_date: Option<String>,
     pub rating: Option<f64>,
+    pub review_summary: Option<String>,
     pub hltb_main: Option<i32>,      // minutes
     pub igdb_url: Option<String>,
     pub fetched_at: String,

@@ -6,6 +6,7 @@ mod m20240001_000003_create_image_assets;
 mod m20240001_000004_create_play_sessions;
 mod m20240001_000005_create_settings;
 mod m20240001_000006_create_game_media;
+mod m20240001_000007_add_review_summary;
 
 pub struct Migrator;
 
@@ -19,7 +20,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20240001_000004_create_play_sessions::Migration),
             Box::new(m20240001_000005_create_settings::Migration),
             Box::new(m20240001_000006_create_game_media::Migration),
+            Box::new(m20240001_000007_add_review_summary::Migration),
         ]
     }
 }
-

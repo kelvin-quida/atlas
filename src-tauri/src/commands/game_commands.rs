@@ -123,3 +123,13 @@ pub async fn search_game_images(query: String, target: Option<String>) -> Result
     crate::services::image_service::search_images(&query, target.as_deref()).await
 }
 
+/// Fetches or retrieves cached metadata for a game (release date, developer, publisher, genres, description, rating).
+#[tauri::command]
+pub async fn get_game_metadata(
+    state: State<'_, AppState>,
+    game_id: String,
+) -> Result<crate::providers::traits::GameMetadata, String> {
+    let db = &state.db;
+    crate::services::metadata_service::get_or_fetch_game_metadata(db, &game_id, &state.app_data_dir).await
+}
+

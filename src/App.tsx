@@ -1058,15 +1058,18 @@ function App() {
   handleFileExplorerSelectRef.current = handleFileExplorerSelect;
 
   const openAddGameModal = () => {
-    openFileExplorer(["exe", "sh", "bin"], async (selectedPath) => {
+    openFileExplorer(["exe", "sh", "bin", "lnk", "url"], async (selectedPath) => {
       if (!selectedPath) return;
 
       const parts = selectedPath.replace(/\\/g, "/").split("/");
       const fileName = parts[parts.length - 1] || "";
       const dotIndex = fileName.lastIndexOf(".");
       const rawName = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
-      // Split CamelCase/PascalCase words, then replace hyphens/underscores
+      // Clean up shortcut suffixes, split CamelCase/PascalCase words, replace hyphens/underscores
       const gameName = rawName
+        .replace(/\.exe$/i, "")
+        .replace(/\s*-\s*atalho$/i, "")
+        .replace(/\s*-\s*shortcut$/i, "")
         .replace(/([a-z])([A-Z])/g, "$1 $2")
         .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
         .replace(/[-_]+/g, " ")
@@ -1100,15 +1103,18 @@ function App() {
   };
 
   const handleEditPickExe = () => {
-    openFileExplorer(["exe", "sh", "bin"], (path) => {
+    openFileExplorer(["exe", "sh", "bin", "lnk", "url"], (path) => {
       setEditExe(path);
       if (!editName && path) {
         const parts = path.replace(/\\/g, "/").split("/");
         const fileName = parts[parts.length - 1];
         const dotIndex = fileName.lastIndexOf(".");
         const rawName = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
-        // Split CamelCase/PascalCase words, then replace hyphens/underscores
+        // Clean up shortcut suffixes, split CamelCase/PascalCase words, replace hyphens/underscores
         const cleanName = rawName
+          .replace(/\.exe$/i, "")
+          .replace(/\s*-\s*atalho$/i, "")
+          .replace(/\s*-\s*shortcut$/i, "")
           .replace(/([a-z])([A-Z])/g, "$1 $2")
           .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
           .replace(/[-_]+/g, " ")

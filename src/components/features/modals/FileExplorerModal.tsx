@@ -21,6 +21,7 @@ interface FileExplorerModalProps {
   onSelectFileExplorerItem: (item: any) => void;
   onSelectCurrentFolder?: (folderPath: string) => void;
   onUpdateExplorerItems?: (items: any[]) => void;
+  allowedExtensions?: string[];
 }
 
 export const FileExplorerModal: React.FC<FileExplorerModalProps> = ({
@@ -40,6 +41,7 @@ export const FileExplorerModal: React.FC<FileExplorerModalProps> = ({
   onSelectFileExplorerItem,
   onSelectCurrentFolder,
   onUpdateExplorerItems,
+  allowedExtensions = ["exe", "sh", "bin", "lnk", "url"],
 }) => {
   const { pushLayer, popLayer, registerLayerHandler } = useGamepad();
   const [searchQuery, setSearchQuery] = useState("");
@@ -78,7 +80,7 @@ export const FileExplorerModal: React.FC<FileExplorerModalProps> = ({
       invoke<any[]>("search_files_recursive", {
         rootPath: rootToSearch,
         query: searchQuery.trim(),
-        allowedExtensions: ["exe", "sh", "bin"],
+        allowedExtensions: allowedExtensions,
       })
         .then((res) => {
           setSearchResults(res);
@@ -366,7 +368,7 @@ export const FileExplorerModal: React.FC<FileExplorerModalProps> = ({
                 icon = "↩️";
               } else if (!item.is_dir) {
                 const ext = item.path.split(".").pop()?.toLowerCase();
-                if (ext === "exe" || ext === "sh" || ext === "bin") {
+                if (ext === "exe" || ext === "sh" || ext === "bin" || ext === "lnk" || ext === "url") {
                   icon = "🎮";
                 } else if (
                   ["png", "jpg", "jpeg", "webp"].includes(ext || "")
