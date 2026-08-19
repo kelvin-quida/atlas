@@ -716,7 +716,6 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
             <rect x="3" y="14" width="7" height="7" rx="1" />
           </svg>
           <span>Visão Geral</span>
-          <span className="tab-key-hint">L1</span>
         </button>
 
         <button
@@ -738,7 +737,6 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           {steamNews.length > 0 && (
             <span className="tab-badge">{steamNews.length}</span>
           )}
-          <span className="tab-key-hint">R1</span>
         </button>
 
         <button
@@ -757,7 +755,6 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           {steamReviews.length > 0 && (
             <span className="tab-badge">{steamReviews.length}</span>
           )}
-          <span className="tab-key-hint">R2</span>
         </button>
 
         <button
@@ -778,7 +775,6 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           {twitchStreams.length > 0 && (
             <span className="tab-badge tab-badge-twitch">{twitchStreams.length}</span>
           )}
-          <span className="tab-key-hint">R3</span>
         </button>
       </div>
 
@@ -798,64 +794,6 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
               galleryFullscreenRef={galleryFullscreenRef}
             />
 
-            {/* Installation & Execution Card */}
-            <div
-              ref={installCardRef}
-              tabIndex={0}
-              className={`atlas-card install-info-card hydra-card focusable ${
-                detailSelectedIndex === 3 ? "focused" : ""
-              }`}
-              onMouseEnter={() => setDetailSelectedIndex(3)}
-            >
-              <div className="atlas-card-header">
-                <h3 className="atlas-card-title">Informações do Sistema</h3>
-              </div>
-              <div className="install-info-list hydra-info-list">
-                {metadata?.developer && (
-                  <div className="info-row">
-                    <span className="info-key">Estúdio:</span>
-                    <span className="info-val" title={metadata.developer}>
-                      {metadata.developer}
-                    </span>
-                  </div>
-                )}
-                {metadata?.publisher && (
-                  <div className="info-row">
-                    <span className="info-key">Publicadora:</span>
-                    <span className="info-val" title={metadata.publisher}>
-                      {metadata.publisher}
-                    </span>
-                  </div>
-                )}
-                {metadata?.release_date && (
-                  <div className="info-row">
-                    <span className="info-key">Lançamento:</span>
-                    <span className="info-val">
-                      {metadata.release_date}
-                    </span>
-                  </div>
-                )}
-                <div className="info-row">
-                  <span className="info-key">Executável:</span>
-                  <span
-                    className="info-val"
-                    title={activeDetailGame.exe_path || "Padrão do Sistema"}
-                  >
-                    {activeDetailGame.exe_path || "Padrão do Sistema"}
-                  </span>
-                </div>
-                <div className="info-row">
-                  <span className="info-key">Plataforma:</span>
-                  <span className="info-val">
-                    {activeDetailGame.isCustom ? "Atalho PC" : "Steam"}
-                  </span>
-                </div>
-                <div className="info-row">
-                  <span className="info-key">ID do Jogo:</span>
-                  <span className="info-val">{activeDetailGame.appid}</span>
-                </div>
-              </div>
-            </div>
           </div>
 
           {/* Right Column: Achievements & Hydra Stats Sidebar */}
@@ -871,7 +809,7 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
             >
               <div className="sidebar-widget-header">
                 <span className="widget-title-row">
-                  <span className="atlas-card-title">Estatísticas do Jogo</span>
+                  <span className="atlas-card-title">Informações do Jogo</span>
                 </span>
               </div>
               <div className="stats-list hydra-stats-table">
@@ -901,25 +839,12 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
                     </span>
                   </div>
                 )}
-                {metadata?.genres && metadata.genres.length > 0 && (
+                {metadata?.release_date && (
                   <div className="stat-row hydra-stat-row">
-                    <span className="stat-name">Marcadores</span>
-                    <span
-                      className="stat-score"
-                      style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                      title={metadata.genres.join(", ")}
-                    >
-                      {metadata.genres.slice(0, 3).join(", ")}
-                      {metadata.genres.length > 3 ? ` (+${metadata.genres.length - 3})` : ""}
-                    </span>
+                    <span className="stat-name">Lançamento</span>
+                    <span className="stat-score">{metadata.release_date}</span>
                   </div>
                 )}
-                <div className="stat-row hydra-stat-row">
-                  <span className="stat-name">Fonte de Dados</span>
-                  <span className="stat-score">
-                    {metadata?.igdb_url ? "IGDB" : "Steam Store"}
-                  </span>
-                </div>
               </div>
             </div>
 
