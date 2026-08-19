@@ -1152,13 +1152,6 @@ const YOUTUBE_TV_INIT_SCRIPT: &str = r#"
                 showVolumeToast(targetVolume);
                 break;
             }
-            case 'volume_down': {
-                targetVolume = Math.max(0, Math.round((targetVolume - 0.05) * 100) / 100);
-                localStorage.setItem('atlas_yt_volume', targetVolume.toString());
-                syncVolume();
-                showVolumeToast(targetVolume);
-                break;
-            }
             case 'fullscreen': simulateKey('f', 'KeyF', 70); break;
         }
     };
@@ -1202,7 +1195,7 @@ async fn open_youtube_webview(app: tauri::AppHandle) -> Result<(), String> {
 // Twitch webview
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TWITCH_TV_INIT_SCRIPT: &str = r#"
+const TWITCH_TV_INIT_SCRIPT: &str = r###"
 (function() {
     if (window.__ATLAS_TWITCH_INJECTED) return;
     window.__ATLAS_TWITCH_INJECTED = true;
@@ -1278,7 +1271,7 @@ const TWITCH_TV_INIT_SCRIPT: &str = r#"
         }, 1500);
     };
 
-    // 1. Inject Clean TV CSS & Single Focus Highlight
+    // 1. Inject Clean TV CSS, Focus Highlight & Virtual Keyboard Styles
     const injectStyles = () => {
         const style = document.createElement('style');
         style.id = 'atlas-twitch-tv-engine';
@@ -1313,11 +1306,419 @@ const TWITCH_TV_INIT_SCRIPT: &str = r#"
                 z-index: 9999 !important;
                 transition: outline 0.1s ease, box-shadow 0.1s ease !important;
             }
+
+            /* Virtual Keyboard Overlay Container */
+            .atlas-vk-overlay {
+                position: fixed !important;
+                bottom: 0 !important;
+                left: 0 !important;
+                right: 0 !important;
+                top: 0 !important;
+                background: rgba(0, 0, 0, 0.75) !important;
+                backdrop-filter: blur(8px) !important;
+                z-index: 9999999 !important;
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: center !important;
+                justify-content: flex-end !important;
+                padding-bottom: 24px !important;
+                font-family: system-ui, -apple-system, sans-serif !important;
+                box-sizing: border-box !important;
+                animation: atlasVkFadeIn 0.15s ease-out !important;
+            }
+
+            @keyframes atlasVkFadeIn {
+                from { opacity: 0; transform: translateY(20px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+
+            .atlas-vk-card {
+                background: #18181b !important;
+                border: 1px solid rgba(145, 70, 255, 0.4) !important;
+                box-shadow: 0 16px 48px rgba(0, 0, 0, 0.8), 0 0 24px rgba(145, 70, 255, 0.25) !important;
+                border-radius: 16px !important;
+                width: 90% !important;
+                max-width: 820px !important;
+                padding: 20px !important;
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 14px !important;
+            }
+
+            .atlas-vk-header {
+                display: flex !important;
+                justify-content: space-between !important;
+                align-items: center !important;
+                color: #efeff1 !important;
+                font-size: 16px !important;
+                font-weight: 600 !important;
+            }
+
+            .atlas-vk-title {
+                color: #9146ff !important;
+                display: flex !important;
+                align-items: center !important;
+                gap: 8px !important;
+            }
+
+            .atlas-vk-close-btn {
+                background: transparent !important;
+                border: none !important;
+                color: #adadb8 !important;
+                font-size: 18px !important;
+                cursor: pointer !important;
+                padding: 4px 8px !important;
+            }
+
+            .atlas-vk-preview {
+                display: flex !important;
+                align-items: center !important;
+                background: #0e0e10 !important;
+                border: 2px solid #9146ff !important;
+                border-radius: 10px !important;
+                padding: 8px 14px !important;
+                gap: 10px !important;
+            }
+
+            .atlas-vk-input {
+                flex: 1 !important;
+                background: transparent !important;
+                border: none !important;
+                color: #ffffff !important;
+                font-size: 18px !important;
+                outline: none !important;
+                font-family: inherit !important;
+            }
+
+            .atlas-vk-grid {
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 8px !important;
+            }
+
+            .atlas-vk-row {
+                display: flex !important;
+                justify-content: center !important;
+                gap: 6px !important;
+            }
+
+            .atlas-vk-key {
+                background: #26262c !important;
+                color: #efeff1 !important;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                border-radius: 8px !important;
+                padding: 8px 12px !important;
+                font-size: 15px !important;
+                font-weight: 600 !important;
+                min-width: 44px !important;
+                height: 44px !important;
+                cursor: pointer !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                transition: all 0.1s ease !important;
+                user-select: none !important;
+                box-sizing: border-box !important;
+            }
+
+            .atlas-vk-key.special {
+                background: #3a3a44 !important;
+                min-width: 65px !important;
+            }
+
+            .atlas-vk-key.key-space {
+                flex: 1 !important;
+                max-width: 300px !important;
+            }
+
+            .atlas-vk-key.key-enter {
+                background: #9146ff !important;
+                color: #ffffff !important;
+                min-width: 100px !important;
+            }
+
+            .atlas-vk-key.focused {
+                outline: 3px solid #9146ff !important;
+                box-shadow: 0 0 16px rgba(145, 70, 255, 0.9) !important;
+                background: #772ce8 !important;
+                color: #ffffff !important;
+                transform: scale(1.05) !important;
+                z-index: 10 !important;
+            }
+
+            .atlas-vk-hints {
+                display: flex !important;
+                justify-content: center !important;
+                gap: 16px !important;
+                color: #adadb8 !important;
+                font-size: 13px !important;
+                flex-wrap: wrap !important;
+            }
+
+            .atlas-vk-badge {
+                background: #3a3a44 !important;
+                color: #fff !important;
+                padding: 2px 6px !important;
+                border-radius: 4px !important;
+                font-weight: bold !important;
+                font-size: 11px !important;
+                margin-right: 4px !important;
+            }
         `;
         if (document.head) document.head.appendChild(style);
         else document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));
     };
     injectStyles();
+
+    // ── VIRTUAL KEYBOARD ENGINE FOR TWITCH ───────────────────────────────────
+    const LOWERCASE_LAYOUT = [
+        ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "="],
+        ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
+        ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
+        ["SHIFT", "z", "x", "c", "v", "b", "n", "m", "BACKSPACE"],
+        ["MODE_SYM", "SPACE", "CLEAR", "ENTER"]
+    ];
+
+    const UPPERCASE_LAYOUT = [
+        ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+"],
+        ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
+        ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
+        ["SHIFT", "Z", "X", "C", "V", "B", "N", "M", "BACKSPACE"],
+        ["MODE_SYM", "SPACE", "CLEAR", "ENTER"]
+    ];
+
+    const SYMBOLS_LAYOUT = [
+        ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
+        ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")"],
+        ["[", "]", "{", "}", "<", ">", "/", "\\", "|", "?"],
+        ["MODE_ABC", "~", "`", ";", ":", "'", '"', ",", ".", "BACKSPACE"],
+        ["MODE_ABC", "SPACE", "CLEAR", "ENTER"]
+    ];
+
+    let targetInputEl = null;
+    let vkOpen = false;
+    let vkRow = 1;
+    let vkCol = 0;
+    let vkShift = false;
+    let vkSymbols = false;
+    let vkValue = "";
+
+    function getCurrentLayout() {
+        if (vkSymbols) return SYMBOLS_LAYOUT;
+        return vkShift ? UPPERCASE_LAYOUT : LOWERCASE_LAYOUT;
+    }
+
+    function isEditableElement(el) {
+        if (!el) return false;
+        if (el.id === 'atlas-vk-preview-input') return false;
+        const tag = el.tagName ? el.tagName.toUpperCase() : '';
+        if (tag === 'TEXTAREA') return true;
+        if (tag === 'INPUT') {
+            const type = (el.type || 'text').toLowerCase();
+            return ['text', 'search', 'password', 'email', 'url', 'tel', 'number'].includes(type);
+        }
+        if (el.isContentEditable || el.getAttribute('contenteditable') === 'true') return true;
+        if (el.getAttribute('role') === 'textbox') return true;
+        return false;
+    }
+
+    function updateTargetElement(val) {
+        vkValue = val;
+        const preview = document.getElementById('atlas-vk-preview-input');
+        if (preview) preview.value = val;
+
+        if (!targetInputEl) return;
+
+        const tag = targetInputEl.tagName ? targetInputEl.tagName.toUpperCase() : '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA') {
+            const proto = tag === 'INPUT' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+            if (setter) {
+                setter.call(targetInputEl, val);
+            } else {
+                targetInputEl.value = val;
+            }
+            targetInputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            targetInputEl.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+            targetInputEl.focus();
+            targetInputEl.innerText = val;
+            targetInputEl.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+    }
+
+    function getElementValue(el) {
+        if (!el) return '';
+        const tag = el.tagName ? el.tagName.toUpperCase() : '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA') {
+            return el.value || '';
+        }
+        return el.innerText || el.textContent || '';
+    }
+
+    function openVirtualKeyboard(el) {
+        if (vkOpen && targetInputEl === el) return;
+        targetInputEl = el;
+        vkValue = getElementValue(el);
+        vkRow = 1;
+        vkCol = 0;
+        vkShift = false;
+        vkSymbols = false;
+        vkOpen = true;
+        renderVirtualKeyboard();
+    }
+
+    function closeVirtualKeyboard() {
+        vkOpen = false;
+        const overlay = document.getElementById('atlas-vk-overlay');
+        if (overlay) overlay.remove();
+    }
+
+    function handleVkKeyPress(key) {
+        switch(key) {
+            case 'SHIFT':
+                vkShift = !vkShift;
+                renderVirtualKeyboard();
+                break;
+            case 'MODE_SYM':
+                vkSymbols = true;
+                renderVirtualKeyboard();
+                break;
+            case 'MODE_ABC':
+                vkSymbols = false;
+                renderVirtualKeyboard();
+                break;
+            case 'BACKSPACE':
+                updateTargetElement(vkValue.slice(0, -1));
+                break;
+            case 'CLEAR':
+                updateTargetElement('');
+                break;
+            case 'SPACE':
+                updateTargetElement(vkValue + ' ');
+                break;
+            case 'ENTER':
+                closeVirtualKeyboard();
+                if (targetInputEl) {
+                    targetInputEl.focus();
+                    simulateKey('Enter', 'Enter', 13);
+                    const form = targetInputEl.closest('form');
+                    if (form) {
+                        if (typeof form.requestSubmit === 'function') form.requestSubmit();
+                    }
+                }
+                break;
+            default:
+                updateTargetElement(vkValue + key);
+                if (vkShift) {
+                    vkShift = false;
+                    renderVirtualKeyboard();
+                }
+                break;
+        }
+    }
+
+    function renderVirtualKeyboard() {
+        let overlay = document.getElementById('atlas-vk-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'atlas-vk-overlay';
+            overlay.className = 'atlas-vk-overlay';
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) closeVirtualKeyboard();
+            });
+            document.body.appendChild(overlay);
+        }
+
+        const layout = getCurrentLayout();
+        const safeRow = Math.min(vkRow, layout.length - 1);
+        const currentRow = layout[safeRow];
+        const safeCol = Math.min(vkCol, currentRow.length - 1);
+
+        const getDisplayLabel = (k) => {
+            switch(k) {
+                case 'SHIFT': return vkShift ? '⇧ CAPS' : '⇧ Shift';
+                case 'MODE_SYM': return '#@& 123';
+                case 'MODE_ABC': return 'ABC';
+                case 'BACKSPACE': return '⌫ Apagar';
+                case 'SPACE': return 'Espaço';
+                case 'CLEAR': return 'Limpar';
+                case 'ENTER': return '✓ Concluir';
+                default: return k;
+            }
+        };
+
+        let rowsHtml = '';
+        layout.forEach((r, rIdx) => {
+            let keysHtml = '';
+            r.forEach((k, cIdx) => {
+                const isFocused = (rIdx === safeRow && cIdx === safeCol);
+                const isSpecial = ['SHIFT', 'MODE_SYM', 'MODE_ABC', 'BACKSPACE', 'SPACE', 'CLEAR', 'ENTER'].includes(k);
+                let extra = '';
+                if (k === 'SPACE') extra += ' key-space';
+                if (k === 'ENTER') extra += ' key-enter';
+                if (isFocused) extra += ' focused';
+                keysHtml += `<button type="button" class="atlas-vk-key ${isSpecial ? 'special' : ''} ${extra}" data-r="${rIdx}" data-c="${cIdx}" data-k="${k}">${getDisplayLabel(k)}</button>`;
+            });
+            rowsHtml += `<div class="atlas-vk-row">${keysHtml}</div>`;
+        });
+
+        overlay.innerHTML = `
+            <div class="atlas-vk-card" onclick="event.stopPropagation()">
+                <div class="atlas-vk-header">
+                    <span class="atlas-vk-title">⌨️ Teclado Virtual (Twitch)</span>
+                    <button class="atlas-vk-close-btn" id="atlas-vk-close-x">✕</button>
+                </div>
+                <div class="atlas-vk-preview">
+                    <input type="text" id="atlas-vk-preview-input" class="atlas-vk-input" value="${vkValue.replace(/"/g, '&quot;')}" placeholder="Digite aqui..." readonly />
+                </div>
+                <div class="atlas-vk-grid">${rowsHtml}</div>
+                <div class="atlas-vk-hints">
+                    <span><kbd class="atlas-vk-badge">A</kbd> Selecionar</span>
+                    <span><kbd class="atlas-vk-badge">X</kbd> Apagar</span>
+                    <span><kbd class="atlas-vk-badge">Y</kbd> Espaço</span>
+                    <span><kbd class="atlas-vk-badge">LB</kbd> Shift</span>
+                    <span><kbd class="atlas-vk-badge">RB</kbd> Símbolos</span>
+                    <span><kbd class="atlas-vk-badge">Start</kbd> Concluir</span>
+                    <span><kbd class="atlas-vk-badge">B</kbd> Cancelar</span>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('atlas-vk-close-x')?.addEventListener('click', closeVirtualKeyboard);
+
+        overlay.querySelectorAll('.atlas-vk-key').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const r = parseInt(btn.getAttribute('data-r'));
+                const c = parseInt(btn.getAttribute('data-c'));
+                const k = btn.getAttribute('data-k');
+                vkRow = r;
+                vkCol = c;
+                handleVkKeyPress(k);
+            });
+        });
+    }
+
+    // Event listeners to trigger VK on click or focus of editable elements
+    document.addEventListener('click', (e) => {
+        let el = e.target;
+        while (el && el !== document.body) {
+            if (isEditableElement(el)) {
+                openVirtualKeyboard(el);
+                break;
+            }
+            el = el.parentElement;
+        }
+    }, true);
+
+    document.addEventListener('focusin', (e) => {
+        let el = e.target;
+        if (isEditableElement(el)) {
+            if (!vkOpen) {
+                openVirtualKeyboard(el);
+            }
+        }
+    }, true);
 
     // Remove focus highlight class from all elements
     function clearSpatialFocus() {
@@ -1328,7 +1729,7 @@ const TWITCH_TV_INIT_SCRIPT: &str = r#"
 
     // Filter meaningful focusable cards, buttons, links and inputs
     function getFocusableElements() {
-        const selector = 'a[href], button:not([disabled]), input:not([disabled]), [data-a-target="preview-card-image-link"]';
+        const selector = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [data-a-target="preview-card-image-link"]';
         const elements = Array.from(document.querySelectorAll(selector));
         
         return elements.filter(el => {
@@ -1439,6 +1840,56 @@ const TWITCH_TV_INIT_SCRIPT: &str = r#"
     }
 
     window.__ATLAS_TWITCH = function(action) {
+        if (vkOpen) {
+            const layout = getCurrentLayout();
+            const safeRow = Math.min(vkRow, layout.length - 1);
+            const currentRow = layout[safeRow];
+            const safeCol = Math.min(vkCol, currentRow.length - 1);
+
+            switch(action) {
+                case 'navigate_up':
+                    vkRow = Math.max(0, vkRow - 1);
+                    renderVirtualKeyboard();
+                    return;
+                case 'navigate_down':
+                    vkRow = Math.min(layout.length - 1, vkRow + 1);
+                    renderVirtualKeyboard();
+                    return;
+                case 'navigate_left':
+                    vkCol = Math.max(0, safeCol - 1);
+                    renderVirtualKeyboard();
+                    return;
+                case 'navigate_right': {
+                    const maxC = layout[safeRow]?.length ? layout[safeRow].length - 1 : 0;
+                    vkCol = Math.min(maxC, safeCol + 1);
+                    renderVirtualKeyboard();
+                    return;
+                }
+                case 'click': {
+                    const key = layout[safeRow]?.[safeCol];
+                    if (key) handleVkKeyPress(key);
+                    return;
+                }
+                case 'back':
+                    closeVirtualKeyboard();
+                    return;
+                case 'play_pause':
+                    updateTargetElement(vkValue + ' ');
+                    return;
+                case 'fullscreen':
+                    updateTargetElement(vkValue.slice(0, -1));
+                    return;
+                case 'seek_back':
+                    vkShift = !vkShift;
+                    renderVirtualKeyboard();
+                    return;
+                case 'seek_forward':
+                    vkSymbols = !vkSymbols;
+                    renderVirtualKeyboard();
+                return;
+            }
+        }
+
         switch(action) {
             case 'navigate_up':
             case 'navigate_down':
@@ -1449,7 +1900,11 @@ const TWITCH_TV_INIT_SCRIPT: &str = r#"
 
             case 'click':
                 if (document.activeElement && document.activeElement !== document.body) {
-                    document.activeElement.click();
+                    if (isEditableElement(document.activeElement)) {
+                        openVirtualKeyboard(document.activeElement);
+                    } else {
+                        document.activeElement.click();
+                    }
                 } else {
                     simulateKey('Enter', 'Enter', 13);
                 }
@@ -1514,9 +1969,9 @@ const TWITCH_TV_INIT_SCRIPT: &str = r#"
         }
     };
 
-    console.log('[Atlas] Twitch Spatial Navigation Refined.');
+    console.log('[Atlas] Twitch Spatial Navigation & Virtual Keyboard injected.');
 })();
-"#;
+"###;
 
 #[tauri::command]
 async fn open_twitch_webview(app: tauri::AppHandle) -> Result<(), String> {
