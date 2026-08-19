@@ -49,6 +49,7 @@ export const GameStreamers: React.FC<GameStreamersProps> = ({
     const streamUrl = `https://www.twitch.tv/${stream.user_login}`;
     try {
       await invoke("open_twitch_stream_url", { url: streamUrl });
+      window.dispatchEvent(new Event("atlas:twitch-opened"));
     } catch (err) {
       console.error("Failed to open Twitch stream webview:", err);
       window.open(streamUrl, "_blank");
@@ -162,8 +163,15 @@ export const GameStreamers: React.FC<GameStreamersProps> = ({
                   }}
                   tabIndex={0}
                   className={`streamer-card focusable ${isSelected ? "focused" : ""}`}
-                  onMouseEnter={() => onSelectStreamIndex?.(index)}
-                  onClick={() => handleLaunchStream(stream)}
+                  onMouseMove={(e) => {
+                    if (e.movementX !== 0 || e.movementY !== 0) {
+                      onSelectStreamIndex?.(index);
+                    }
+                  }}
+                  onClick={() => {
+                    onSelectStreamIndex?.(index);
+                    handleLaunchStream(stream);
+                  }}
                 >
                   {/* Thumbnail Wrapper */}
                   <div className="stream-thumbnail-wrapper">

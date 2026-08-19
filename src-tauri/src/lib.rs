@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::time::{Instant, Duration};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tokio::sync::Mutex;
 use sea_orm::DatabaseConnection;
 use sea_orm_migration::MigratorTrait;
@@ -1200,6 +1200,12 @@ const TWITCH_TV_INIT_SCRIPT: &str = r###"
     if (window.__ATLAS_TWITCH_INJECTED) return;
     window.__ATLAS_TWITCH_INJECTED = true;
 
+    // Helper to trigger close via navigation back to atlas_action=close
+    const triggerAtlasClose = () => {
+        console.log('[Atlas Twitch] Requesting close...');
+        window.location.href = 'https://www.twitch.tv/?atlas_action=close';
+    };
+
     // Load initial stored volume (or default 1.0)
     let savedVol = parseFloat(localStorage.getItem('atlas_twitch_volume'));
     if (isNaN(savedVol) || savedVol < 0 || savedVol > 1) {
@@ -1283,6 +1289,46 @@ const TWITCH_TV_INIT_SCRIPT: &str = r###"
                 text-rendering: optimizeLegibility !important;
                 overflow-x: hidden !important;
                 background-color: #0e0e10 !important;
+            }
+
+            /* Atlas Twitch Floating Header Close Button */
+            .atlas-twitch-header-close-btn {
+                position: fixed !important;
+                top: 20px !important;
+                right: 20px !important;
+                z-index: 9999999 !important;
+                background: rgba(14, 14, 16, 0.9) !important;
+                color: #ffffff !important;
+                border: 1px solid rgba(145, 70, 255, 0.6) !important;
+                border-radius: 30px !important;
+                padding: 8px 18px !important;
+                font-family: system-ui, -apple-system, sans-serif !important;
+                font-size: 14px !important;
+                font-weight: 700 !important;
+                display: flex !important;
+                align-items: center !important;
+                gap: 8px !important;
+                cursor: pointer !important;
+                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 0 16px rgba(145, 70, 255, 0.3) !important;
+                backdrop-filter: blur(12px) !important;
+                transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+                user-select: none !important;
+                opacity: 0.85 !important;
+            }
+
+            .atlas-twitch-header-close-btn:hover,
+            .atlas-twitch-header-close-btn.atlas-spatial-focused {
+                opacity: 1 !important;
+                background: #9146ff !important;
+                color: #ffffff !important;
+                transform: translateY(-2px) scale(1.04) !important;
+                box-shadow: 0 12px 32px rgba(145, 70, 255, 0.7) !important;
+                border-color: #ffffff !important;
+            }
+
+            .atlas-twitch-header-close-btn svg {
+                width: 16px !important;
+                height: 16px !important;
             }
 
             /* Hide Web Banners, Cookie Consent Prompts & Popups */
@@ -1720,6 +1766,57 @@ const TWITCH_TV_INIT_SCRIPT: &str = r###"
         }
     }, true);
 
+    // Inject Floating Atlas Exit Button at top-right
+    const injectAtlasOverlay = () => {
+        let btn = document.getElementById('atlas-twitch-close-btn');
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.id = 'atlas-twitch-close-btn';
+            btn.className = 'atlas-twitch-header-close-btn';
+            btn.setAttribute('tabindex', '0');
+            btn.innerHTML = `
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+                <span>Sair da Twitch (ESC / B)</span>
+            `;
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                triggerAtlasClose();
+            });
+            if (document.body) document.body.appendChild(btn);
+        }
+    };
+    if (document.body) injectAtlasOverlay();
+    else document.addEventListener('DOMContentLoaded', injectAtlasOverlay);
+    setInterval(injectAtlasOverlay, 2000);
+
+    // Intercept Keyboard Escape, Backspace (outside text inputs), Q, and BrowserBack inside Twitch webview
+    document.addEventListener('keydown', (e) => {
+        if (
+            e.key === 'Escape' ||
+            e.key === 'Esc' ||
+            (e.key === 'Backspace' && !isEditableElement(document.activeElement)) ||
+            e.key === 'q' ||
+            e.key === 'Q' ||
+            e.key === 'BrowserBack'
+        ) {
+            if (vkOpen) {
+                closeVirtualKeyboard();
+                return;
+            }
+            if (document.fullscreenElement) {
+                document.exitFullscreen().catch(() => {});
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            triggerAtlasClose();
+        }
+    }, true);
+
     // Remove focus highlight class from all elements
     function clearSpatialFocus() {
         document.querySelectorAll('.atlas-spatial-focused').forEach(el => {
@@ -1729,7 +1826,7 @@ const TWITCH_TV_INIT_SCRIPT: &str = r###"
 
     // Filter meaningful focusable cards, buttons, links and inputs
     function getFocusableElements() {
-        const selector = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [data-a-target="preview-card-image-link"]';
+        const selector = '#atlas-twitch-close-btn, a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [data-a-target="preview-card-image-link"]';
         const elements = Array.from(document.querySelectorAll(selector));
         
         return elements.filter(el => {
@@ -1911,9 +2008,17 @@ const TWITCH_TV_INIT_SCRIPT: &str = r###"
                 break;
 
             case 'back':
+            case 'close':
+                if (vkOpen) {
+                    closeVirtualKeyboard();
+                    return;
+                }
+                if (document.fullscreenElement) {
+                    document.exitFullscreen().catch(() => {});
+                    return;
+                }
                 clearSpatialFocus();
-                simulateKey('Escape', 'Escape', 27);
-                history.back();
+                triggerAtlasClose();
                 break;
 
             case 'play_pause':
@@ -2222,10 +2327,24 @@ async fn open_twitch_stream_url(app: tauri::AppHandle, url: String) -> Result<()
         url
     };
 
+    let app_handle = app.clone();
     let webview_builder = tauri::WebviewBuilder::new(
         "twitch",
         tauri::WebviewUrl::External(tauri::Url::parse(&target_url).map_err(|e| e.to_string())?),
     )
+    .on_navigation(move |url| {
+        if url.as_str().contains("atlas_action=close") || url.scheme() == "atlas-close" {
+            let app = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Some(wv) = app.get_webview("twitch") {
+                    let _ = wv.close();
+                }
+                let _ = app.emit("atlas:twitch-closed", ());
+            });
+            return false;
+        }
+        true
+    })
     .initialization_script(TWITCH_TV_INIT_SCRIPT)
     .auto_resize();
 
@@ -2260,8 +2379,9 @@ async fn twitch_gamepad_action(app: tauri::AppHandle, action: String) -> Result<
 #[tauri::command]
 async fn close_twitch_webview(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(webview) = app.get_webview("twitch") {
-        webview.close().map_err(|e| e.to_string())?;
+        let _ = webview.close();
     }
+    let _ = app.emit("atlas:twitch-closed", ());
     Ok(())
 }
 

@@ -87,7 +87,7 @@ function App() {
   const [shellEnabled, setShellEnabled] = useState(false);
   const [systemTime, setSystemTime] = useState("");
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
-  const { gamepadConnected, registerLayerHandler } = useGamepad();
+  const { gamepadConnected, registerLayerHandler, pushLayer, popLayer } = useGamepad();
   const [youtubeActive, setYoutubeActive] = useState(false);
   const [twitchActive, setTwitchActive] = useState(false);
   const [backloggdActive, setBackloggdActive] = useState(false);
@@ -221,6 +221,81 @@ function App() {
     document.documentElement.setAttribute("data-theme", currentTheme);
     localStorage.setItem("atlas_theme", currentTheme);
   }, [currentTheme]);
+
+  // Listen for Twitch webview events (opened & closed)
+  useEffect(() => {
+    const handleTwitchOpened = () => {
+      (window as any).__atlasTwitchOpen = true;
+      setTwitchActive(true);
+    };
+
+    window.addEventListener("atlas:twitch-opened", handleTwitchOpened);
+
+    const unlistenPromise = listen("atlas:twitch-closed", () => {
+      (window as any).__atlasTwitchOpen = false;
+      setTwitchActive(false);
+    });
+
+    return () => {
+      window.removeEventListener("atlas:twitch-opened", handleTwitchOpened);
+      unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, []);
+
+  // Push/Pop gamepad layers when webviews open/close
+  useEffect(() => {
+    if (twitchActive) {
+      pushLayer("twitch");
+    } else {
+      popLayer("twitch");
+    }
+  }, [twitchActive, pushLayer, popLayer]);
+
+  useEffect(() => {
+    if (youtubeActive) {
+      pushLayer("youtube");
+    } else {
+      popLayer("youtube");
+    }
+  }, [youtubeActive, pushLayer, popLayer]);
+
+  useEffect(() => {
+    if (backloggdActive) {
+      pushLayer("backloggd");
+    } else {
+      popLayer("backloggd");
+    }
+  }, [backloggdActive, pushLayer, popLayer]);
+
+  // Dedicated Gamepad Layer Handler for Twitch
+  useEffect(() => {
+    const unregister = registerLayerHandler("twitch", (actions: GamepadActionState) => {
+      const sendAction = (action: string) => {
+        invoke("twitch_gamepad_action", { action }).catch(console.error);
+      };
+
+      if (actions.start || actions.b) {
+        handleCloseTwitch();
+        return true;
+      }
+      if (actions.up) sendAction("navigate_up");
+      else if (actions.down) sendAction("navigate_down");
+      else if (actions.left) sendAction("navigate_left");
+      else if (actions.right) sendAction("navigate_right");
+      else if (actions.a) sendAction("click");
+      else if (actions.x) sendAction("fullscreen");
+      else if (actions.y) sendAction("play_pause");
+      else if (actions.lb) sendAction("seek_back");
+      else if (actions.rb) sendAction("seek_forward");
+      else if (actions.lt) sendAction("volume_down");
+      else if (actions.rt) sendAction("volume_up");
+      else if (actions.rawAxes.y < -0.6) sendAction("scroll_up");
+      else if (actions.rawAxes.y > 0.6) sendAction("scroll_down");
+      return true;
+    });
+
+    return () => unregister();
+  }, [registerLayerHandler]);
 
   // Keyboard navigation for Game Detail Page
   useEffect(() => {
@@ -408,11 +483,13 @@ function App() {
 
   const handleOpenTwitch = async () => {
     try {
+      (window as any).__atlasTwitchOpen = true;
       setTwitchActive(true);
       await invoke("open_twitch_webview");
     } catch (err) {
       console.error(err);
       alert(`Falha ao abrir Twitch: ${err}`);
+      (window as any).__atlasTwitchOpen = false;
       setTwitchActive(false);
     }
   };
@@ -444,6 +521,7 @@ function App() {
     } catch (err) {
       console.error(err);
     } finally {
+      (window as any).__atlasTwitchOpen = false;
       setTwitchActive(false);
     }
   };
@@ -1623,13 +1701,12 @@ function App() {
           invoke("twitch_gamepad_action", { action }).catch(console.error);
         };
 
-        if (actions.start) handleCloseTwitch();
+        if (actions.start || actions.b) handleCloseTwitch();
         else if (actions.up) sendAction("navigate_up");
         else if (actions.down) sendAction("navigate_down");
         else if (actions.left) sendAction("navigate_left");
         else if (actions.right) sendAction("navigate_right");
         else if (actions.a) sendAction("click");
-        else if (actions.b) sendAction("back");
         else if (actions.x) sendAction("fullscreen");
         else if (actions.y) sendAction("play_pause");
         else if (actions.lb) sendAction("seek_back");

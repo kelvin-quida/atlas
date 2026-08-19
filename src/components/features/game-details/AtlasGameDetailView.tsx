@@ -143,9 +143,24 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
     };
   }, [pushLayer, popLayer]);
 
+  const getStreamGridColumns = (): number => {
+    if (!containerRef.current) return 3;
+    const gridEl = containerRef.current.querySelector(".streamers-grid");
+    if (!gridEl) return 3;
+    const computed = window.getComputedStyle(gridEl);
+    const gridTemplateColumns = computed.getPropertyValue("grid-template-columns");
+    if (gridTemplateColumns) {
+      const cols = gridTemplateColumns.split(" ").filter(Boolean).length;
+      if (cols > 0) return cols;
+    }
+    return 3;
+  };
+
   // Register Gamepad layer handler for navigation
   useEffect(() => {
     const unregister = registerLayerHandler("atlas-detail-view", (actions) => {
+      if ((window as any).__atlasTwitchOpen) return true;
+
       if (showTagsModal) {
         if (actions.b || actions.a) {
           setShowTagsModal(false);
@@ -216,7 +231,9 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
             const stream = twitchStreams[selectedStreamIndex];
             if (stream) {
               const streamUrl = `https://www.twitch.tv/${stream.user_login}`;
-              invoke("open_twitch_stream_url", { url: streamUrl }).catch(console.error);
+              invoke("open_twitch_stream_url", { url: streamUrl })
+                .then(() => window.dispatchEvent(new Event("atlas:twitch-opened")))
+                .catch(() => window.open(streamUrl, "_blank"));
             }
           }
         }
@@ -232,7 +249,7 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           if (reviewsNavRef.current?.handleAction("left")) return true;
         }
         if (activeTab === "streamers" && detailSelectedIndex === 2) {
-          if (selectedStreamIndex % 3 > 0) {
+          if (selectedStreamIndex > 0) {
             setSelectedStreamIndex((prev) => prev - 1);
           }
           return true;
@@ -258,7 +275,7 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           if (reviewsNavRef.current?.handleAction("right")) return true;
         }
         if (activeTab === "streamers" && detailSelectedIndex === 2) {
-          if (selectedStreamIndex % 3 < 2 && selectedStreamIndex < twitchStreams.length - 1) {
+          if (selectedStreamIndex < twitchStreams.length - 1) {
             setSelectedStreamIndex((prev) => prev + 1);
           }
           return true;
@@ -287,8 +304,9 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           }
           setDetailSelectedIndex(0);
         } else if (activeTab === "streamers" && detailSelectedIndex === 2) {
-          if (selectedStreamIndex >= 3) {
-            setSelectedStreamIndex((prev) => prev - 3);
+          const cols = getStreamGridColumns();
+          if (selectedStreamIndex >= cols) {
+            setSelectedStreamIndex((prev) => prev - cols);
           } else {
             setDetailSelectedIndex(0);
           }
@@ -317,8 +335,11 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
         } else if (activeTab === "reviews" && detailSelectedIndex === 2) {
           if (reviewsNavRef.current?.handleAction("down")) return true;
         } else if (activeTab === "streamers" && detailSelectedIndex === 2) {
-          if (selectedStreamIndex + 3 < twitchStreams.length) {
-            setSelectedStreamIndex((prev) => prev + 3);
+          const cols = getStreamGridColumns();
+          if (selectedStreamIndex + cols < twitchStreams.length) {
+            setSelectedStreamIndex((prev) => prev + cols);
+          } else if (selectedStreamIndex < twitchStreams.length - 1) {
+            setSelectedStreamIndex(twitchStreams.length - 1);
           }
           return true;
         } else {
@@ -345,6 +366,8 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
     detailSelectedIndex,
     selectedNewsIndex,
     selectedReviewIndex,
+    selectedStreamIndex,
+    twitchStreams,
     filteredReviewCount,
     steamNews,
     activeDetailGame,
@@ -362,6 +385,9 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (document.querySelector(".news-modal-overlay")) return;
+
+      // If Twitch webview is currently open, let App.tsx handle the Escape
+      if ((window as any).__atlasTwitchOpen) return;
 
       if (e.key === "Escape") {
         e.preventDefault();
@@ -384,6 +410,10 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           galleryPrevRef?.current?.();
         } else if (activeTab === "reviews" && detailSelectedIndex === 2) {
           reviewsNavRef.current?.handleAction("left");
+        } else if (activeTab === "streamers" && detailSelectedIndex === 2) {
+          if (selectedStreamIndex > 0) {
+            setSelectedStreamIndex((prev) => prev - 1);
+          }
         } else {
           setDetailSelectedIndex((prev) => {
             if (prev === 1) return 0;
@@ -401,6 +431,10 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           galleryNextRef?.current?.();
         } else if (activeTab === "reviews" && detailSelectedIndex === 2) {
           reviewsNavRef.current?.handleAction("right");
+        } else if (activeTab === "streamers" && detailSelectedIndex === 2) {
+          if (selectedStreamIndex < twitchStreams.length - 1) {
+            setSelectedStreamIndex((prev) => prev + 1);
+          }
         } else {
           setDetailSelectedIndex((prev) => {
             if (prev === 0) return 1;
@@ -423,6 +457,13 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           if (!reviewsNavRef.current?.handleAction("up")) {
             setDetailSelectedIndex(0);
           }
+        } else if (activeTab === "streamers" && detailSelectedIndex === 2) {
+          const cols = getStreamGridColumns();
+          if (selectedStreamIndex >= cols) {
+            setSelectedStreamIndex((prev) => prev - cols);
+          } else {
+            setDetailSelectedIndex(0);
+          }
         } else {
           setDetailSelectedIndex((prev) => {
             if (prev === 2) return 0;
@@ -443,6 +484,13 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
           }
         } else if (activeTab === "reviews" && detailSelectedIndex === 2) {
           reviewsNavRef.current?.handleAction("down");
+        } else if (activeTab === "streamers" && detailSelectedIndex === 2) {
+          const cols = getStreamGridColumns();
+          if (selectedStreamIndex + cols < twitchStreams.length) {
+            setSelectedStreamIndex((prev) => prev + cols);
+          } else if (selectedStreamIndex < twitchStreams.length - 1) {
+            setSelectedStreamIndex(twitchStreams.length - 1);
+          }
         } else {
           setDetailSelectedIndex((prev) => {
             if (prev === 0 || prev === 1) return 2;
@@ -467,6 +515,14 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
             openNewsModalRef.current?.();
           } else if (activeTab === "reviews") {
             reviewsNavRef.current?.handleAction("a");
+          } else if (activeTab === "streamers") {
+            const stream = twitchStreams[selectedStreamIndex];
+            if (stream) {
+              const streamUrl = `https://www.twitch.tv/${stream.user_login}`;
+              invoke("open_twitch_stream_url", { url: streamUrl })
+                .then(() => window.dispatchEvent(new Event("atlas:twitch-opened")))
+                .catch(() => window.open(streamUrl, "_blank"));
+            }
           }
         }
       }
@@ -478,6 +534,8 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
     activeTab,
     detailSelectedIndex,
     selectedNewsIndex,
+    selectedStreamIndex,
+    twitchStreams,
     steamNews,
     activeDetailGame,
     onClose,
@@ -974,7 +1032,11 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
         <div
           ref={streamersCardRef}
           className="atlas-detail-streamers-tab-container"
-          onMouseEnter={() => setDetailSelectedIndex(2)}
+          onMouseMove={(e) => {
+            if (e.movementX !== 0 || e.movementY !== 0) {
+              setDetailSelectedIndex(2);
+            }
+          }}
         >
           <GameStreamers
             streams={twitchStreams}
