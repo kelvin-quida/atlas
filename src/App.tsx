@@ -603,56 +603,41 @@ function App() {
     }
   };
 
-  // Listen to window focus/blur to end play sessions
+  // Listen to background process monitor playtime-updated events
   useEffect(() => {
-    const handleFocus = async () => {
-      if (activeSessionIdRef.current !== null) {
-        const sid = activeSessionIdRef.current;
-        const targetGame = activeLaunchingGameRef.current || activeDetailGame || games[selectedGameIndex];
-        activeSessionIdRef.current = null;
-        activeLaunchingGameRef.current = null;
-        try {
-          const res = await invoke<{ duration_seconds: number; formatted: string }>(
-            "end_play_session",
-            { sessionId: sid }
-          );
-          console.log(`[Playtime] Ended session ${sid}. Played for ${res.formatted}`);
+    let unlisten: (() => void) | undefined;
+    listen<{
+      game_id: string;
+      session_seconds: number;
+      total_seconds: number;
+      formatted: string;
+      last_played: string;
+    }>("playtime-updated", (event) => {
+      const { game_id, total_seconds, formatted, last_played } = event.payload;
+      console.log(`[PlaytimeMonitor] Received update for ${game_id}: ${formatted}`);
 
-          if (targetGame) {
-            const nowIso = new Date().toISOString();
-            loadPlaytime(targetGame.appid);
+      setPlaytimes((prev) => ({
+        ...prev,
+        [game_id]: { total_seconds, formatted },
+      }));
 
-            if (targetGame.isCustom) {
-              setCustomGames((prev) =>
-                prev.map((g) =>
-                  g.appid === targetGame.appid ? { ...g, last_played: nowIso } : g
-                )
-              );
-            } else {
-              setSteamGames((prev) =>
-                prev.map((g) =>
-                  g.appid === targetGame.appid ? { ...g, last_played: nowIso } : g
-                )
-              );
-            }
+      setSteamGames((prev) =>
+        prev.map((g) => (g.appid === game_id ? { ...g, last_played } : g))
+      );
+      setCustomGames((prev) =>
+        prev.map((g) => (g.appid === game_id ? { ...g, last_played } : g))
+      );
+      setActiveDetailGame((prev) =>
+        prev && prev.appid === game_id ? { ...prev, last_played } : prev
+      );
+    }).then((fn) => {
+      unlisten = fn;
+    });
 
-            setActiveDetailGame((prev) =>
-              prev && prev.appid === targetGame.appid
-                ? { ...prev, last_played: nowIso }
-                : prev
-            );
-          }
-        } catch (e) {
-          console.error("Failed to end play session in DB:", e);
-        }
-      }
-    };
-
-    window.addEventListener("focus", handleFocus);
     return () => {
-      window.removeEventListener("focus", handleFocus);
+      if (unlisten) unlisten();
     };
-  }, [games, selectedGameIndex, activeDetailGame]);
+  }, []);
 
   // Merge steamGames and customGames when either changes, deduplicating by appid and name
   useEffect(() => {
@@ -830,7 +815,7 @@ function App() {
         if (isSimulated) {
           await new Promise((resolve) => setTimeout(resolve, 2500));
         } else {
-          await invoke("launch_custom_game", { exePath: game.exe_path });
+          await invoke("launch_custom_game", { exePath: game.exe_path, gameId: game.appid });
         }
       } else {
         if (isSimulated) {

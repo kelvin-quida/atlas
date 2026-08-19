@@ -50,6 +50,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # Timestamps
 chrono = { version = "0.4", features = ["serde"] }
 
+# Process Monitoring
+sysinfo = "0.30"
+
 # Async trait support (for MetadataProvider)
 async-trait = "0.1"
 

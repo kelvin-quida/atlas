@@ -23,6 +23,28 @@ interface AtlasGameDetailViewProps {
   galleryLightboxRef?: React.MutableRefObject<(() => void) | null>;
 }
 
+function formatLastPlayed(lastPlayedStr?: string): string {
+  if (!lastPlayedStr) return "Você ainda não jogou";
+
+  const d = new Date(lastPlayedStr);
+  if (isNaN(d.getTime())) return "Você ainda não jogou";
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const targetDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+  if (targetDate.getTime() === today.getTime()) {
+    return "Última vez jogado: Hoje";
+  }
+  if (targetDate.getTime() === yesterday.getTime()) {
+    return "Última vez jogado: Ontem";
+  }
+  return `Última vez jogado em ${d.toLocaleDateString()}`;
+}
+
 export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
   activeDetailGame,
   detailSelectedIndex,
@@ -562,11 +584,7 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
             </strong>
           </span>
           <span className="hydra-playtime-sub">
-            {activeDetailGame.last_played
-              ? `Última vez jogado em ${new Date(
-                  activeDetailGame.last_played
-                ).toLocaleDateString()}`
-              : "Você ainda não jogou"}
+            {formatLastPlayed(activeDetailGame.last_played)}
           </span>
         </div>
       </div>

@@ -339,14 +339,44 @@ fn get_installed_games() -> Vec<SteamGame> {
 }
 
 #[tauri::command]
-fn launch_game(appid: &str) -> Result<String, String> {
+async fn launch_game(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    appid: String,
+) -> Result<String, String> {
+    use sea_orm::{ColumnTrait, QueryFilter, EntityTrait};
+    use crate::models::game;
+
+    let db = state.db.clone();
+    let game_opt = game::Entity::find()
+        .filter(
+            sea_orm::Condition::any()
+                .add(game::Column::SteamAppId.eq(&appid))
+                .add(game::Column::Id.eq(&appid))
+        )
+        .one(&db)
+        .await
+        .ok()
+        .flatten();
+
+    let target_exe = game_opt
+        .as_ref()
+        .and_then(|g| g.exe_path.clone())
+        .filter(|p| !p.trim().is_empty())
+        .unwrap_or_else(|| {
+            game_opt.as_ref().map(|g| g.name.clone()).unwrap_or_else(|| appid.clone())
+        });
+
     #[cfg(target_os = "windows")]
     {
         let status = std::process::Command::new("cmd")
             .args(["/C", &format!("start steam://run/{}", appid)])
             .status();
         match status {
-            Ok(s) if s.success() => Ok(format!("Successfully launched {}", appid)),
+            Ok(s) if s.success() => {
+                services::process_monitor::start_monitoring(app, db, appid.clone(), target_exe);
+                Ok(format!("Successfully launched {}", appid))
+            }
             Ok(s) => Err(format!("Command exited with status code: {}", s)),
             Err(e) => Err(format!("Failed to execute command: {}", e)),
         }
@@ -357,7 +387,10 @@ fn launch_game(appid: &str) -> Result<String, String> {
             .arg(format!("steam://run/{}", appid))
             .status();
         match status {
-            Ok(s) if s.success() => Ok(format!("Successfully launched {}", appid)),
+            Ok(s) if s.success() => {
+                services::process_monitor::start_monitoring(app, db, appid.clone(), target_exe);
+                Ok(format!("Successfully launched {}", appid))
+            }
             Ok(s) => Err(format!("Command exited with status code: {}", s)),
             Err(e) => Err(format!("Failed to execute command: {}", e)),
         }
@@ -502,7 +535,12 @@ fn pick_file(filter: &str, title: &str) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn launch_custom_game(exe_path: &str) -> Result<String, String> {
+fn launch_custom_game(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    exe_path: &str,
+    game_id: Option<String>,
+) -> Result<String, String> {
     let path = Path::new(exe_path);
     if !path.exists() {
         return Err("O arquivo executável não existe no caminho especificado.".to_string());
@@ -510,6 +548,8 @@ fn launch_custom_game(exe_path: &str) -> Result<String, String> {
     let parent_dir = path
         .parent()
         .ok_or_else(|| "Não foi possível obter o diretório do executável.".to_string())?;
+
+    let id = game_id.unwrap_or_else(|| exe_path.to_string());
 
     #[cfg(target_os = "windows")]
     {
@@ -525,7 +565,10 @@ fn launch_custom_game(exe_path: &str) -> Result<String, String> {
             ])
             .status();
         match status {
-            Ok(s) if s.success() => Ok("Jogo customizado iniciado com sucesso".to_string()),
+            Ok(s) if s.success() => {
+                services::process_monitor::start_monitoring(app, state.db.clone(), id, exe_path.to_string());
+                Ok("Jogo customizado iniciado com sucesso".to_string())
+            }
             Ok(s) => Err(format!("O PowerShell retornou código de erro: {}", s)),
             Err(e) => Err(format!("Falha ao executar o comando PowerShell: {}", e)),
         }
@@ -533,7 +576,10 @@ fn launch_custom_game(exe_path: &str) -> Result<String, String> {
     #[cfg(target_os = "linux")]
     {
         match std::process::Command::new(path).current_dir(parent_dir).spawn() {
-            Ok(_) => Ok("Jogo customizado iniciado com sucesso".to_string()),
+            Ok(_) => {
+                services::process_monitor::start_monitoring(app, state.db.clone(), id, exe_path.to_string());
+                Ok("Jogo customizado iniciado com sucesso".to_string())
+            }
             Err(e) => Err(format!("Falha ao executar o processo: {}", e)),
         }
     }

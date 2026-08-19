@@ -43,6 +43,30 @@ pub async fn start_session(db: &DatabaseConnection, game_id: &str) -> Result<i32
     Ok(model.id)
 }
 
+/// Records a completed play session with start, end, and duration.
+pub async fn record_finished_session(
+    db: &DatabaseConnection,
+    game_id: &str,
+    started_at_iso: &str,
+    ended_at_iso: &str,
+    duration_seconds: u32,
+) -> Result<i32, String> {
+    let real_id = resolve_game_uuid(db, game_id).await?;
+    let active = play_session::ActiveModel {
+        id: sea_orm::ActiveValue::NotSet,
+        game_id: Set(real_id),
+        started_at: Set(started_at_iso.to_string()),
+        ended_at: Set(Some(ended_at_iso.to_string())),
+        duration_seconds: Set(Some(duration_seconds as i32)),
+    };
+    let model = active
+        .insert(db)
+        .await
+        .map_err(|e| format!("Failed to insert finished play session: {}", e))?;
+    Ok(model.id)
+}
+
+
 /// Ends an active play session and calculates the duration in seconds.
 pub async fn end_session(db: &DatabaseConnection, session_id: i32) -> Result<u32, String> {
     let session = play_session::Entity::find_by_id(session_id)

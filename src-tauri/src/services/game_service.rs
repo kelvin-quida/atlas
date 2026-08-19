@@ -487,3 +487,34 @@ fn normalize_sort_name(name: &str) -> String {
     }
     name.to_string()
 }
+
+/// Updates only the `last_played` field of a game in the database.
+pub async fn touch_last_played(
+    db: &DatabaseConnection,
+    game_id: &str,
+    iso_timestamp: &str,
+) -> Result<(), String> {
+    use sea_orm::{ColumnTrait, QueryFilter};
+    use crate::models::game;
+
+    let found = game::Entity::find()
+        .filter(
+            sea_orm::Condition::any()
+                .add(game::Column::Id.eq(game_id))
+                .add(game::Column::SteamAppId.eq(game_id))
+        )
+        .one(db)
+        .await
+        .map_err(|e| format!("DB find error: {}", e))?;
+
+    if let Some(g) = found {
+        let mut active: GameActive = g.into();
+        active.last_played = Set(Some(iso_timestamp.to_string()));
+        active
+            .update(db)
+            .await
+            .map_err(|e| format!("DB update error: {}", e))?;
+    }
+    Ok(())
+}
+
