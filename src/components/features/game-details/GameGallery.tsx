@@ -120,7 +120,7 @@ export const GameGallery: React.FC<GameGalleryProps> = ({
   const toggleMute = useCallback(() => {
     setIsMuted((prev) => {
       const next = !prev;
-      sendYtCommand(next ? "unMute" : "mute");
+      sendYtCommand(next ? "mute" : "unMute");
       return next;
     });
   }, [sendYtCommand]);

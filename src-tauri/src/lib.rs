@@ -1034,6 +1034,77 @@ const YOUTUBE_TV_INIT_SCRIPT: &str = r#"
     if (window.__ATLAS_TV_INJECTED) return;
     window.__ATLAS_TV_INJECTED = true;
 
+    // Load initial stored volume (or default 1.0)
+    let savedVol = parseFloat(localStorage.getItem('atlas_yt_volume'));
+    if (isNaN(savedVol) || savedVol < 0 || savedVol > 1) {
+        savedVol = 1.0;
+    }
+    let targetVolume = savedVol;
+
+    // Enforce volume on any video element on page
+    const syncVolume = () => {
+        const videos = document.querySelectorAll('video');
+        videos.forEach(v => {
+            if (v && Math.abs(v.volume - targetVolume) > 0.01) {
+                v.volume = targetVolume;
+            }
+        });
+    };
+
+    // Monitor DOM for volume changes & new video elements
+    document.addEventListener('volumechange', (e) => {
+        const v = e.target;
+        if (v && v.tagName === 'VIDEO' && Math.abs(v.volume - targetVolume) > 0.01) {
+            v.volume = targetVolume;
+        }
+    }, true);
+
+    // Periodically enforce target volume to prevent YouTube SPA player from overriding it
+    setInterval(syncVolume, 500);
+
+    // Toast HUD overlay for volume control feedback
+    let toastTimeout = null;
+    const showVolumeToast = (vol) => {
+        let toast = document.getElementById('atlas-yt-vol-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'atlas-yt-vol-toast';
+            toast.style.cssText = `
+                position: fixed;
+                top: 30px;
+                right: 30px;
+                background: rgba(15, 15, 20, 0.85);
+                color: #fff;
+                font-family: system-ui, sans-serif;
+                font-size: 18px;
+                font-weight: 600;
+                padding: 12px 20px;
+                border-radius: 12px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+                backdrop-filter: blur(8px);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                z-index: 999999;
+                transition: opacity 0.3s ease, transform 0.3s ease;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                pointer-events: none;
+            `;
+            document.body.appendChild(toast);
+        }
+        const pct = Math.round(vol * 100);
+        const icon = pct === 0 ? '🔇' : pct < 50 ? '🔉' : '🔊';
+        toast.innerHTML = `<span>${icon}</span> Volume: ${pct}%`;
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateY(0)';
+
+        if (toastTimeout) clearTimeout(toastTimeout);
+        toastTimeout = setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(-10px)';
+        }, 1500);
+    };
+
     // Inject high quality display overrides
     const injectStyles = () => {
         const style = document.createElement('style');
@@ -1075,20 +1146,24 @@ const YOUTUBE_TV_INIT_SCRIPT: &str = r#"
             case 'seek_back':      simulateKey('j', 'KeyJ', 74); break;
             case 'seek_forward':   simulateKey('l', 'KeyL', 76); break;
             case 'volume_up': {
-                const v = document.querySelector('video');
-                if (v) v.volume = Math.min(1, v.volume + 0.1);
+                targetVolume = Math.min(1, Math.round((targetVolume + 0.05) * 100) / 100);
+                localStorage.setItem('atlas_yt_volume', targetVolume.toString());
+                syncVolume();
+                showVolumeToast(targetVolume);
                 break;
             }
             case 'volume_down': {
-                const v = document.querySelector('video');
-                if (v) v.volume = Math.max(0, v.volume - 0.1);
+                targetVolume = Math.max(0, Math.round((targetVolume - 0.05) * 100) / 100);
+                localStorage.setItem('atlas_yt_volume', targetVolume.toString());
+                syncVolume();
+                showVolumeToast(targetVolume);
                 break;
             }
             case 'fullscreen': simulateKey('f', 'KeyF', 70); break;
         }
     };
 
-    console.log('[Atlas] YouTube TV gamepad bridge & sharpness injected.');
+    console.log('[Atlas] YouTube TV gamepad bridge & persistent volume injected.');
 })();
 "#;
 
@@ -1131,6 +1206,77 @@ const TWITCH_TV_INIT_SCRIPT: &str = r#"
 (function() {
     if (window.__ATLAS_TWITCH_INJECTED) return;
     window.__ATLAS_TWITCH_INJECTED = true;
+
+    // Load initial stored volume (or default 1.0)
+    let savedVol = parseFloat(localStorage.getItem('atlas_twitch_volume'));
+    if (isNaN(savedVol) || savedVol < 0 || savedVol > 1) {
+        savedVol = 1.0;
+    }
+    let targetVolume = savedVol;
+
+    // Enforce volume on any video element on page
+    const syncVolume = () => {
+        const videos = document.querySelectorAll('video');
+        videos.forEach(v => {
+            if (v && Math.abs(v.volume - targetVolume) > 0.01) {
+                v.volume = targetVolume;
+            }
+        });
+    };
+
+    // Monitor DOM for volume changes & new video elements
+    document.addEventListener('volumechange', (e) => {
+        const v = e.target;
+        if (v && v.tagName === 'VIDEO' && Math.abs(v.volume - targetVolume) > 0.01) {
+            v.volume = targetVolume;
+        }
+    }, true);
+
+    // Periodically enforce target volume to prevent player from overriding it
+    setInterval(syncVolume, 500);
+
+    // Toast HUD overlay for volume control feedback
+    let toastTimeout = null;
+    const showVolumeToast = (vol) => {
+        let toast = document.getElementById('atlas-twitch-vol-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'atlas-twitch-vol-toast';
+            toast.style.cssText = `
+                position: fixed;
+                top: 30px;
+                right: 30px;
+                background: rgba(15, 15, 20, 0.85);
+                color: #fff;
+                font-family: system-ui, sans-serif;
+                font-size: 18px;
+                font-weight: 600;
+                padding: 12px 20px;
+                border-radius: 12px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+                backdrop-filter: blur(8px);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                z-index: 999999;
+                transition: opacity 0.3s ease, transform 0.3s ease;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                pointer-events: none;
+            `;
+            document.body.appendChild(toast);
+        }
+        const pct = Math.round(vol * 100);
+        const icon = pct === 0 ? '🔇' : pct < 50 ? '🔉' : '🔊';
+        toast.innerHTML = `<span>${icon}</span> Volume: ${pct}%`;
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateY(0)';
+
+        if (toastTimeout) clearTimeout(toastTimeout);
+        toastTimeout = setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(-10px)';
+        }, 1500);
+    };
 
     // 1. Inject Clean TV CSS & Single Focus Highlight
     const injectStyles = () => {
@@ -1343,14 +1489,18 @@ const TWITCH_TV_INIT_SCRIPT: &str = r#"
             }
 
             case 'volume_up': {
-                const v = document.querySelector('video');
-                if (v) v.volume = Math.min(1, v.volume + 0.1);
+                targetVolume = Math.min(1, Math.round((targetVolume + 0.05) * 100) / 100);
+                localStorage.setItem('atlas_twitch_volume', targetVolume.toString());
+                syncVolume();
+                showVolumeToast(targetVolume);
                 break;
             }
 
             case 'volume_down': {
-                const v = document.querySelector('video');
-                if (v) v.volume = Math.max(0, v.volume - 0.1);
+                targetVolume = Math.max(0, Math.round((targetVolume - 0.05) * 100) / 100);
+                localStorage.setItem('atlas_twitch_volume', targetVolume.toString());
+                syncVolume();
+                showVolumeToast(targetVolume);
                 break;
             }
 
