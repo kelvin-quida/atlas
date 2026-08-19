@@ -177,31 +177,54 @@ pub fn format_playtime(total_seconds: i64) -> String {
     }
 }
 
-/// Overwrites total playtime for a game with specified total_seconds.
+/// Overwrites or adjusts total playtime for a game while preserving real gameplay session history.
 pub async fn set_total_playtime(db: &DatabaseConnection, game_id: &str, total_seconds: i64) -> Result<(), String> {
     use sea_orm::{ColumnTrait, QueryFilter, EntityTrait};
+    use chrono::Utc;
 
     let real_id = resolve_game_uuid(db, game_id).await?;
 
+    // Fetch existing play sessions
+    let sessions = play_session::Entity::find()
+        .filter(play_session::Column::GameId.eq(&real_id))
+        .all(db)
+        .await
+        .map_err(|e| format!("Failed to fetch play sessions: {}", e))?;
+
+    // Clear previous manual adjustments or historical consolidations
     play_session::Entity::delete_many()
         .filter(play_session::Column::GameId.eq(&real_id))
+        .filter(
+            sea_orm::Condition::any()
+                .add(play_session::Column::StartedAt.eq("MANUAL_ADJUSTMENT"))
+                .add(play_session::Column::StartedAt.starts_with("1970-"))
+        )
         .exec(db)
         .await
-        .map_err(|e| format!("Failed to delete existing play sessions: {}", e))?;
+        .map_err(|e| format!("Failed to clear previous manual adjustments: {}", e))?;
 
-    if total_seconds > 0 {
-        let historical_date = "1970-01-01T00:00:00Z".to_string();
+    // Sum remaining real gameplay sessions
+    let real_total: i64 = sessions
+        .iter()
+        .filter(|s| s.started_at != "MANUAL_ADJUSTMENT" && !s.started_at.starts_with("1970-"))
+        .map(|s| s.duration_seconds.unwrap_or(0) as i64)
+        .sum();
+
+    // If target total_seconds exceeds real session total, insert a delta session for the difference
+    let adjustment_needed = total_seconds - real_total;
+    if adjustment_needed > 0 {
+        let now_iso = Utc::now().to_rfc3339();
         let active = play_session::ActiveModel {
             id: sea_orm::ActiveValue::NotSet,
             game_id: Set(real_id),
-            started_at: Set(historical_date.clone()),
-            ended_at: Set(Some(historical_date)),
-            duration_seconds: Set(Some(total_seconds.max(0) as i32)),
+            started_at: Set("MANUAL_ADJUSTMENT".to_string()),
+            ended_at: Set(Some(now_iso)),
+            duration_seconds: Set(Some(adjustment_needed.max(0) as i32)),
         };
         active
             .insert(db)
             .await
-            .map_err(|e| format!("Failed to insert new playtime session: {}", e))?;
+            .map_err(|e| format!("Failed to insert manual adjustment session: {}", e))?;
     }
 
     Ok(())
@@ -224,6 +247,15 @@ pub async fn get_dashboard_stats(
         .all(db)
         .await
         .map_err(|e| format!("DB error loading games: {}", e))?;
+
+    // Auto-migrate legacy 1970 sessions to current timestamp so past edits show in dashboard stats
+    use sea_orm::{ColumnTrait, QueryFilter};
+    let now_iso = Utc::now().to_rfc3339();
+    let _ = play_session::Entity::update_many()
+        .filter(play_session::Column::StartedAt.starts_with("1970-"))
+        .col_expr(play_session::Column::StartedAt, sea_orm::sea_query::Expr::value(now_iso.clone()))
+        .exec(db)
+        .await;
 
     let all_sessions = play_session::Entity::find()
         .all(db)
@@ -379,10 +411,15 @@ pub async fn get_dashboard_stats(
 
         global_total_seconds += secs;
 
-        let is_initial_imported_session = s.started_at.starts_with("1970-")
-            || (s.ended_at.is_some() && s.ended_at.as_ref() == Some(&s.started_at));
+        let is_initial_imported_session = s.started_at == "STEAM_IMPORT";
 
-        let parsed_start = DateTime::parse_from_rfc3339(&s.started_at)
+        let date_to_parse = if s.started_at == "MANUAL_ADJUSTMENT" || s.started_at == "STEAM_IMPORT" {
+            s.ended_at.as_deref().unwrap_or(&s.started_at)
+        } else {
+            &s.started_at
+        };
+
+        let parsed_start = DateTime::parse_from_rfc3339(date_to_parse)
             .map(|dt| dt.with_timezone(&Utc))
             .ok();
 

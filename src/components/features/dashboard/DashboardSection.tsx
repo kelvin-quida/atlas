@@ -326,8 +326,18 @@ export const DashboardSection: React.FC<DashboardSectionProps> = ({
             >
               Neste Mês ({stats?.selected_month_label || "Mês"})
             </button>
-
-
+            <button
+              className={`filter-pill-btn ${filterMode === "all" ? "active" : ""} ${
+                isFocused && activeZone === "filters" && focusedFilterIdx === 1 ? "gamepad-focused" : ""
+              }`}
+              onClick={() => {
+                setActiveZone("filters");
+                setFocusedFilterIdx(1);
+                setFilterMode("all");
+              }}
+            >
+              Todos os Tempos
+            </button>
           </div>
         </div>
       </div>
@@ -421,6 +431,27 @@ export const DashboardSection: React.FC<DashboardSectionProps> = ({
         </div>
 
         {/* Total Accumulated (Secondary) */}
+        <div
+          className={`metric-card ${
+            isFocused && activeZone === "metrics" && focusedMetricIdx === 3 ? "gamepad-focused" : ""
+          }`}
+          onClick={() => {
+            setActiveZone("metrics");
+            setFocusedMetricIdx(3);
+          }}
+        >
+          <div className="metric-icon-box monthly" style={{ background: "rgba(16, 185, 129, 0.15)", color: "#10b981" }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+          </div>
+          <div className="metric-info">
+            <span className="metric-label" style={{ color: "#10b981" }}>Horas Totais</span>
+            <span className="metric-value">{stats?.total_formatted || "0m"}</span>
+            <span className="metric-subtext">Total acumulado na biblioteca</span>
+          </div>
+        </div>
       </div>
 
       {/* Main Grid: Selected Game Focus & Leaderboard */}
