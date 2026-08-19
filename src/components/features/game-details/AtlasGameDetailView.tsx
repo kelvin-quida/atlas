@@ -21,6 +21,7 @@ interface AtlasGameDetailViewProps {
   galleryPrevRef?: React.MutableRefObject<(() => void) | null>;
   galleryNextRef?: React.MutableRefObject<(() => void) | null>;
   galleryLightboxRef?: React.MutableRefObject<(() => void) | null>;
+  galleryFullscreenRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 function formatLastPlayed(lastPlayedStr?: string): string {
@@ -56,6 +57,7 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
   galleryPrevRef,
   galleryNextRef,
   galleryLightboxRef,
+  galleryFullscreenRef,
 }) => {
   const [activeTab, setActiveTab] = useState<"overview" | "news" | "reviews">("overview");
   const [selectedNewsIndex, setSelectedNewsIndex] = useState<number>(0);
@@ -174,6 +176,13 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
         if (activeTab === "overview") setSelectedNewsIndex(0);
         if (activeTab === "news") setSelectedReviewIndex(0);
         return true;
+      }
+
+      if (actions.x || actions.y) {
+        if (detailSelectedIndex === 2 && activeTab === "overview") {
+          galleryFullscreenRef?.current?.();
+          return true;
+        }
       }
 
       if (actions.a) {
@@ -664,6 +673,7 @@ export const AtlasGameDetailView: React.FC<AtlasGameDetailViewProps> = ({
               galleryPrevRef={galleryPrevRef}
               galleryNextRef={galleryNextRef}
               galleryLightboxRef={galleryLightboxRef}
+              galleryFullscreenRef={galleryFullscreenRef}
             />
 
             {/* Installation & Execution Card */}

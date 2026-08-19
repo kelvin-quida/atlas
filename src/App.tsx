@@ -103,6 +103,7 @@ function App() {
   const galleryPrevRef = useRef<(() => void) | null>(null);
   const galleryNextRef = useRef<(() => void) | null>(null);
   const galleryLightboxRef = useRef<(() => void) | null>(null);
+  const galleryFullscreenRef = useRef<(() => void) | null>(null);
 
   // States for options menu and editing
   const [editingGame, setEditingGame] = useState<SteamGame | null>(null);
@@ -1914,6 +1915,7 @@ function App() {
             galleryPrevRef={galleryPrevRef}
             galleryNextRef={galleryNextRef}
             galleryLightboxRef={galleryLightboxRef}
+            galleryFullscreenRef={galleryFullscreenRef}
           />
         ) : games.length === 0 && !loading && activeSection === "games" ? (
           <EmptyLibrary
