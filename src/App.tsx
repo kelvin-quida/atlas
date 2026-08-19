@@ -104,6 +104,7 @@ function App() {
   const galleryNextRef = useRef<(() => void) | null>(null);
   const galleryLightboxRef = useRef<(() => void) | null>(null);
   const galleryFullscreenRef = useRef<(() => void) | null>(null);
+  const dashboardGamepadHandlerRef = useRef<((actions: any) => boolean) | null>(null);
 
   // States for options menu and editing
   const [editingGame, setEditingGame] = useState<SteamGame | null>(null);
@@ -1401,13 +1402,33 @@ function App() {
       // Tab Switching (L1 / R1 keyboard shortcuts)
       if (e.key === "q" || e.key === "Q" || e.key === "[" || e.key === "PageUp") {
         e.preventDefault();
-        setActiveSection("games");
-        setFocusArea("carousel");
+        setActiveSection((prev) => {
+          if (prev === "dashboard") {
+            setFocusArea("media");
+            return "media";
+          }
+          if (prev === "media") {
+            setFocusArea("carousel");
+            return "games";
+          }
+          setFocusArea("dashboard");
+          return "dashboard";
+        });
         return;
       } else if (e.key === "e" || e.key === "E" || e.key === "]" || e.key === "PageDown") {
         e.preventDefault();
-        setActiveSection("media");
-        setFocusArea("media");
+        setActiveSection((prev) => {
+          if (prev === "games") {
+            setFocusArea("media");
+            return "media";
+          }
+          if (prev === "media") {
+            setFocusArea("dashboard");
+            return "dashboard";
+          }
+          setFocusArea("carousel");
+          return "games";
+        });
         return;
       }
 
@@ -1706,13 +1727,33 @@ function App() {
 
       // Global L1 / R1 tab switching on Gamepad
       if (actions.lb) {
-        setActiveSection("games");
-        setFocusArea("carousel");
+        setActiveSection((prev) => {
+          if (prev === "dashboard") {
+            setFocusArea("media");
+            return "media";
+          }
+          if (prev === "media") {
+            setFocusArea("carousel");
+            return "games";
+          }
+          setFocusArea("dashboard");
+          return "dashboard";
+        });
         return true;
       }
       if (actions.rb) {
-        setActiveSection("media");
-        setFocusArea("media");
+        setActiveSection((prev) => {
+          if (prev === "games") {
+            setFocusArea("media");
+            return "media";
+          }
+          if (prev === "media") {
+            setFocusArea("dashboard");
+            return "dashboard";
+          }
+          setFocusArea("carousel");
+          return "games";
+        });
         return true;
       }
 
@@ -1744,6 +1785,18 @@ function App() {
           setFocusArea("carousel");
         }
         return true;
+      }
+
+      if (focusArea === "dashboard") {
+        if (actions.b) {
+          setActiveSection("games");
+          setFocusArea("carousel");
+          return true;
+        }
+        if (dashboardGamepadHandlerRef.current) {
+          const handled = dashboardGamepadHandlerRef.current(actions);
+          if (handled) return true;
+        }
       }
 
       if (currentGames.length > 0 || stateRef.current.activeSection === "games") {
@@ -1892,6 +1945,7 @@ function App() {
           onSectionChange={(sec) => {
             setActiveSection(sec);
             if (sec === "media") setFocusArea("media");
+            else if (sec === "dashboard") setFocusArea("dashboard");
             else setFocusArea("carousel");
           }}
           onOpenYouTube={handleOpenYouTube}
@@ -1950,6 +2004,13 @@ function App() {
             onPlayMovie={(movie) => setActivePlayingMovie(movie)}
             onSelectMedia={setSelectedMediaIndex}
             onMediaItemCountChange={setMediaItemCount}
+            onFocusHeader={() => {
+              setFocusArea("header");
+              setHeaderSelectedIndex(0);
+            }}
+            onRegisterDashboardGamepadHandler={(h) => {
+              dashboardGamepadHandlerRef.current = h;
+            }}
           />
         )
       }

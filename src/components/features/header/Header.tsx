@@ -37,9 +37,16 @@ export const Header: React.FC<HeaderProps> = ({
           <div
             className={`ps5-menu-tab ${activeSection === "media" ? "active" : ""}`}
             onClick={() => onSectionChange?.("media")}
-            title="Alternar para Mídia (R1)"
+            title="Alternar para Mídia"
           >
-            Mídia <span className="key-badge">R1</span>
+            Mídia
+          </div>
+          <div
+            className={`ps5-menu-tab ${activeSection === "dashboard" ? "active" : ""}`}
+            onClick={() => onSectionChange?.("dashboard")}
+            title="Alternar para Dashboard (R1)"
+          >
+            Dashboard <span className="key-badge">R1</span>
           </div>
         </div>
         <div className="ps5-header-right">
@@ -87,9 +94,16 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             className={`header-tab-btn ${activeSection === "media" ? "active" : ""}`}
             onClick={() => onSectionChange?.("media")}
-            title="Alternar para Mídia (R1)"
+            title="Alternar para Mídia"
           >
-            Mídia <span className="key-badge">R1</span>
+            Mídia
+          </button>
+          <button
+            className={`header-tab-btn ${activeSection === "dashboard" ? "active" : ""}`}
+            onClick={() => onSectionChange?.("dashboard")}
+            title="Alternar para Dashboard (R1)"
+          >
+            Dashboard <span className="key-badge">R1</span>
           </button>
         </div>
       </div>

@@ -3,6 +3,7 @@ import { SteamGame, PlaytimeStats, FocusArea, MainSection } from "../../../types
 import { GameInfoPanel } from "./GameInfoPanel";
 import { GameCarousel } from "./GameCarousel";
 import { MovieFile, MediaSection } from "../media/MediaSection";
+import { DashboardSection } from "../dashboard/DashboardSection";
 
 export interface MainViewProps {
   activeGame: SteamGame | null;
@@ -29,6 +30,8 @@ export interface MainViewProps {
   onPlayMovie?: (movie: MovieFile) => void;
   onSelectMedia?: (index: number) => void;
   onMediaItemCountChange?: (count: number) => void;
+  onFocusHeader?: () => void;
+  onRegisterDashboardGamepadHandler?: (handler: ((actions: any) => boolean) | null) => void;
 }
 
 export const MainView: React.FC<MainViewProps> = ({
@@ -56,6 +59,8 @@ export const MainView: React.FC<MainViewProps> = ({
   onPlayMovie,
   onSelectMedia,
   onMediaItemCountChange,
+  onFocusHeader,
+  onRegisterDashboardGamepadHandler,
 }) => {
   if (loading) {
     return (
@@ -85,6 +90,17 @@ export const MainView: React.FC<MainViewProps> = ({
         onPlayMovie={onPlayMovie}
         onSelectMedia={onSelectMedia}
         onItemCountChange={onMediaItemCountChange}
+      />
+    );
+  }
+
+  if (activeSection === "dashboard") {
+    return (
+      <DashboardSection
+        currentTheme={currentTheme}
+        focusArea={focusArea}
+        onFocusHeader={onFocusHeader}
+        onRegisterGamepadHandler={onRegisterDashboardGamepadHandler}
       />
     );
   }

@@ -35,8 +35,66 @@ export interface PlaytimeStats {
 
 export type SettingsTab = "geral" | "custom" | "aparencia";
 export type EditTab = "general" | "advanced" | "media";
-export type MainSection = "games" | "media";
-export type FocusArea = "carousel" | "header" | "media";
+export type MainSection = "games" | "media" | "dashboard";
+export type FocusArea = "carousel" | "header" | "media" | "dashboard";
+
+export interface GameStatsDetail {
+  game_id: string;
+  name: string;
+  cover_url?: string;
+  background_url?: string;
+  total_seconds: number;
+  total_formatted: string;
+  weekly_seconds: number;
+  weekly_formatted: string;
+  monthly_seconds: number;
+  monthly_formatted: string;
+  session_count: number;
+  avg_session_seconds: number;
+  avg_session_formatted: string;
+  longest_session_seconds: number;
+  longest_session_formatted: string;
+  last_played?: string;
+}
+
+export interface PlaySessionDetail {
+  id: number;
+  game_id: string;
+  game_name: string;
+  cover_url?: string;
+  started_at: string;
+  ended_at?: string;
+  duration_seconds: number;
+  formatted_duration: string;
+}
+
+export interface MonthOption {
+  year: number;
+  month: number;
+  label: string;
+}
+
+export interface DashboardStats {
+  total_playtime_seconds: number;
+  total_formatted: string;
+  weekly_playtime_seconds: number;
+  weekly_formatted: string;
+  monthly_playtime_seconds: number;
+  monthly_formatted: string;
+  selected_year: number;
+  selected_month: number;
+  selected_month_label: string;
+  available_months: MonthOption[];
+  total_sessions_count: number;
+  weekly_sessions_count: number;
+  monthly_sessions_count: number;
+  played_games_count: number;
+  weekly_played_games_count: number;
+  monthly_played_games_count: number;
+  total_library_count: number;
+  game_stats: GameStatsDetail[];
+  recent_sessions: PlaySessionDetail[];
+}
 
 export interface SteamUserInfo {
   steam_id: string;
@@ -57,3 +115,4 @@ export interface SteamImportProgress {
   percentage: number;
   current_game: string;
 }
+
