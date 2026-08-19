@@ -1973,21 +1973,258 @@ const TWITCH_TV_INIT_SCRIPT: &str = r###"
 })();
 "###;
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct TwitchStream {
+    pub id: String,
+    pub user_id: String,
+    pub user_login: String,
+    pub user_name: String,
+    pub game_id: String,
+    pub game_name: String,
+    pub title: String,
+    pub viewer_count: u32,
+    pub started_at: String,
+    pub language: String,
+    pub thumbnail_url: String,
+    pub profile_image_url: Option<String>,
+    pub is_mature: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct TwitchGameItem {
+    id: String,
+    name: String,
+}
+
+#[derive(serde::Deserialize)]
+struct TwitchGamesResponse {
+    data: Vec<TwitchGameItem>,
+}
+
+#[derive(serde::Deserialize)]
+struct TwitchCategoryItem {
+    id: String,
+    name: String,
+}
+
+#[derive(serde::Deserialize)]
+struct TwitchSearchCategoriesResponse {
+    data: Vec<TwitchCategoryItem>,
+}
+
+#[derive(serde::Deserialize)]
+struct TwitchStreamItem {
+    id: String,
+    user_id: String,
+    user_login: String,
+    user_name: String,
+    game_id: String,
+    game_name: String,
+    title: String,
+    viewer_count: u32,
+    started_at: String,
+    language: String,
+    thumbnail_url: String,
+    #[serde(default)]
+    is_mature: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct TwitchStreamsResponse {
+    data: Vec<TwitchStreamItem>,
+}
+
+#[derive(serde::Deserialize)]
+struct TwitchUserItem {
+    id: String,
+    profile_image_url: String,
+}
+
+#[derive(serde::Deserialize)]
+struct TwitchUsersResponse {
+    data: Vec<TwitchUserItem>,
+}
+
 #[tauri::command]
-async fn open_twitch_webview(app: tauri::AppHandle) -> Result<(), String> {
+async fn get_twitch_streams(
+    state: tauri::State<'_, AppState>,
+    game_name: String,
+) -> Result<Vec<TwitchStream>, String> {
+    let clean_name = game_name
+        .split('(')
+        .next()
+        .unwrap_or(&game_name)
+        .split('[')
+        .next()
+        .unwrap_or(&game_name)
+        .trim();
+
+    if clean_name.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let token = state.get_igdb_token().await?;
+    let client = reqwest::Client::new();
+
+    // 1. Resolve Twitch Game ID by exact name match
+    let mut game_id: Option<String> = None;
+    let mut resolved_game_name: Option<String> = None;
+
+    let game_res = client
+        .get("https://api.twitch.tv/helix/games")
+        .header("Client-ID", CLIENT_ID)
+        .header("Authorization", format!("Bearer {}", token))
+        .query(&[("name", clean_name)])
+        .send()
+        .await;
+
+    if let Ok(res) = game_res {
+        if res.status().is_success() {
+            if let Ok(body) = res.json::<TwitchGamesResponse>().await {
+                if let Some(first) = body.data.first() {
+                    game_id = Some(first.id.clone());
+                    resolved_game_name = Some(first.name.clone());
+                }
+            }
+        }
+    }
+
+    // 2. Fallback: Search categories if exact name match wasn't found
+    if game_id.is_none() {
+        let search_res = client
+            .get("https://api.twitch.tv/helix/search/categories")
+            .header("Client-ID", CLIENT_ID)
+            .header("Authorization", format!("Bearer {}", token))
+            .query(&[("query", clean_name), ("first", "1")])
+            .send()
+            .await;
+
+        if let Ok(res) = search_res {
+            if res.status().is_success() {
+                if let Ok(body) = res.json::<TwitchSearchCategoriesResponse>().await {
+                    if let Some(first) = body.data.first() {
+                        game_id = Some(first.id.clone());
+                        resolved_game_name = Some(first.name.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    let target_game_id = match game_id {
+        Some(gid) => gid,
+        None => return Ok(Vec::new()),
+    };
+
+    // 3. Fetch top streams for this game ID
+    let streams_res = client
+        .get("https://api.twitch.tv/helix/streams")
+        .header("Client-ID", CLIENT_ID)
+        .header("Authorization", format!("Bearer {}", token))
+        .query(&[("game_id", target_game_id.as_str()), ("first", "20")])
+        .send()
+        .await
+        .map_err(|e| format!("Falha ao buscar streams da Twitch: {}", e))?;
+
+    if !streams_res.status().is_success() {
+        return Err(format!("Twitch API retornou HTTP {}", streams_res.status()));
+    }
+
+    let streams_body: TwitchStreamsResponse = streams_res
+        .json()
+        .await
+        .map_err(|e| format!("Erro ao decodificar JSON de streams: {}", e))?;
+
+    if streams_body.data.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // 4. Batch fetch user profile images
+    let user_ids: Vec<String> = streams_body
+        .data
+        .iter()
+        .map(|s| s.user_id.clone())
+        .collect();
+
+    let mut user_avatars: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    if !user_ids.is_empty() {
+        let mut req = client
+            .get("https://api.twitch.tv/helix/users")
+            .header("Client-ID", CLIENT_ID)
+            .header("Authorization", format!("Bearer {}", token));
+
+        for uid in &user_ids {
+            req = req.query(&[("id", uid)]);
+        }
+
+        if let Ok(users_res) = req.send().await {
+            if users_res.status().is_success() {
+                if let Ok(users_body) = users_res.json::<TwitchUsersResponse>().await {
+                    for u in users_body.data {
+                        user_avatars.insert(u.id, u.profile_image_url);
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. Build TwitchStream list
+    let result = streams_body
+        .data
+        .into_iter()
+        .map(|s| {
+            let thumb = s
+                .thumbnail_url
+                .replace("{width}", "440")
+                .replace("{height}", "248");
+            let avatar = user_avatars.get(&s.user_id).cloned();
+
+            TwitchStream {
+                id: s.id,
+                user_id: s.user_id,
+                user_login: s.user_login,
+                user_name: s.user_name,
+                game_id: s.game_id,
+                game_name: if !s.game_name.is_empty() {
+                    s.game_name
+                } else {
+                    resolved_game_name.clone().unwrap_or_default()
+                },
+                title: s.title,
+                viewer_count: s.viewer_count,
+                started_at: s.started_at,
+                language: s.language,
+                thumbnail_url: thumb,
+                profile_image_url: avatar,
+                is_mature: s.is_mature,
+            }
+        })
+        .collect();
+
+    Ok(result)
+}
+
+#[tauri::command]
+async fn open_twitch_stream_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
     let main_window = app
         .get_window("main")
         .ok_or_else(|| "Janela principal não encontrada".to_string())?;
 
-    if app.get_webview("twitch").is_some() {
-        return Ok(());
+    if let Some(webview) = app.get_webview("twitch") {
+        let _ = webview.close();
     }
 
     let size = main_window.inner_size().map_err(|e| e.to_string())?;
+    let target_url = if url.trim().is_empty() {
+        "https://www.twitch.tv".to_string()
+    } else {
+        url
+    };
 
     let webview_builder = tauri::WebviewBuilder::new(
         "twitch",
-        tauri::WebviewUrl::External(tauri::Url::parse("https://www.twitch.tv").unwrap()),
+        tauri::WebviewUrl::External(tauri::Url::parse(&target_url).map_err(|e| e.to_string())?),
     )
     .initialization_script(TWITCH_TV_INIT_SCRIPT)
     .auto_resize();
@@ -2001,6 +2238,11 @@ async fn open_twitch_webview(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[tauri::command]
+async fn open_twitch_webview(app: tauri::AppHandle) -> Result<(), String> {
+    open_twitch_stream_url(app, "https://www.twitch.tv".to_string()).await
 }
 
 #[tauri::command]
@@ -2404,6 +2646,8 @@ pub fn run() {
             open_twitch_webview,
             close_twitch_webview,
             twitch_gamepad_action,
+            get_twitch_streams,
+            open_twitch_stream_url,
             // ── Backloggd ─────────────────────────────────────────────
             open_backloggd_webview,
             close_backloggd_webview,
