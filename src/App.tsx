@@ -781,6 +781,12 @@ function App() {
   // Smoothly preload ambient background images to avoid delays/flashes
   useEffect(() => {
     if (loading || carouselGames.length === 0) return;
+
+    if (activeSection !== "games" || isLibraryOpen || settingsOpen) {
+      setAmbientBgUrl("");
+      return;
+    }
+
     const activeGame = carouselGames[selectedGameIndex] || installedGames[0];
     if (!activeGame || activeGame.appid === "__LIBRARY_CARD__") {
       setAmbientBgUrl("");
@@ -836,7 +842,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [selectedGameIndex, carouselGames, loading]);
+  }, [selectedGameIndex, carouselGames, loading, activeSection, isLibraryOpen, settingsOpen]);
 
   // Check if custom registry Windows shell replacement is currently enabled
   const checkShellStatus = async () => {

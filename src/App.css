@@ -50,6 +50,16 @@ body {
   /* prevents white edges from blur */
 }
 
+.ambient-bg.app-default-bg {
+  background-color: #0b1329;
+  background-image:
+    radial-gradient(ellipse at 30% 20%, rgba(30, 58, 138, 0.45) 0%, transparent 60%),
+    radial-gradient(ellipse at 70% 80%, rgba(15, 23, 42, 0.6) 0%, transparent 65%),
+    linear-gradient(180deg, #0f172a 0%, #0b132b 50%, #070a14 100%);
+  filter: none;
+  transform: scale(1);
+}
+
 .ambient-bg-fade-in {
   animation: ambientFadeIn 0.35s ease-out forwards;
 }
@@ -71,6 +81,10 @@ body {
   bottom: 0;
   background: linear-gradient(180deg, rgba(8, 8, 10, 0.35) 0%, rgba(8, 8, 10, 0.65) 70%, rgba(8, 8, 10, 0.85) 100%);
   z-index: 1;
+}
+
+.ambient-overlay.app-default-overlay {
+  background: linear-gradient(180deg, rgba(7, 10, 20, 0.15) 0%, rgba(7, 10, 20, 0.4) 70%, rgba(7, 10, 20, 0.65) 100%);
 }
 
 /* Console Container */
@@ -962,9 +976,23 @@ input:checked+.slider:before {
   transform: scale(1);
 }
 
+[data-theme="ps5"] .ambient-bg.app-default-bg {
+  background-color: #060e20;
+  background-image:
+    radial-gradient(ellipse at 25% 20%, rgba(0, 70, 160, 0.45) 0%, transparent 60%),
+    radial-gradient(ellipse at 75% 75%, rgba(10, 25, 60, 0.5) 0%, transparent 65%),
+    linear-gradient(180deg, #0a142e 0%, #060d20 50%, #030610 100%);
+  filter: none;
+  transform: scale(1);
+}
+
 [data-theme="ps5"] .ambient-overlay {
   background: radial-gradient(circle at center, rgba(0, 40, 100, 0.03) 0%, rgba(2, 2, 4, 0.95) 100%),
     linear-gradient(to top, rgba(4, 4, 7, 0.96) 0%, rgba(4, 4, 7, 0) 50%);
+}
+
+[data-theme="ps5"] .ambient-overlay.app-default-overlay {
+  background: linear-gradient(180deg, rgba(3, 6, 16, 0.1) 0%, rgba(3, 6, 16, 0.35) 70%, rgba(3, 6, 16, 0.6) 100%);
 }
 
 /* PS5 Header Navigation (Games/Media, search, avatar, relógio) */
@@ -4688,7 +4716,7 @@ input:checked+.slider:before {
 
 .header-tab-btn.active {
   background: var(--accent-cyan, #06b6d4);
-  color: #000000;
+  color: #ffffff;
   border-color: var(--accent-cyan, #06b6d4);
   box-shadow: 0 0 12px rgba(6, 182, 212, 0.4);
 }
@@ -6629,4 +6657,4 @@ input:checked+.slider:before {
   background: #772ce8;
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(145, 70, 255, 0.5);
-}
+}

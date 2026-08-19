@@ -46,15 +46,15 @@ export const AmbientBackground: React.FC<AmbientBackgroundProps> = ({
 
       {/* Camada do background atual (faz fade-in por cima sem distorcer o tamanho da imagem) */}
       <div
-        key={currentUrl}
-        className={`ambient-bg ${isFading ? "ambient-bg-fade-in" : ""}`}
+        key={currentUrl || "app-default-bg"}
+        className={`ambient-bg ${isFading ? "ambient-bg-fade-in" : ""} ${!currentUrl ? "app-default-bg" : ""}`}
         style={{
-          backgroundImage: currentUrl ? `url(${currentUrl})` : "none",
-          backgroundColor: currentUrl ? "var(--bg-primary)" : "transparent",
+          backgroundImage: currentUrl ? `url(${currentUrl})` : undefined,
+          backgroundColor: "var(--bg-primary)",
           zIndex: isFading ? 1 : 0,
         }}
       >
-        {activeGame && !activeGame.image_url && (
+        {activeGame && !activeGame.image_url && currentUrl && (
           <div
             style={{
               width: "100%",
@@ -65,7 +65,7 @@ export const AmbientBackground: React.FC<AmbientBackgroundProps> = ({
           />
         )}
       </div>
-      <div className="ambient-overlay" style={{ zIndex: 2 }} />
+      <div className={`ambient-overlay ${!currentUrl ? "app-default-overlay" : ""}`} style={{ zIndex: 2 }} />
     </>
   );
 };

@@ -89,7 +89,7 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => onSectionChange?.("games")}
             title="Alternar para Jogos (L1)"
           >
-            <span className="key-badge">L1</span> Jogos
+             Jogos
           </button>
           <button
             className={`header-tab-btn ${activeSection === "media" ? "active" : ""}`}
@@ -103,7 +103,7 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => onSectionChange?.("dashboard")}
             title="Alternar para Dashboard (R1)"
           >
-            Dashboard <span className="key-badge">R1</span>
+            Dashboard 
           </button>
         </div>
       </div>
